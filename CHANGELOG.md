@@ -8,6 +8,20 @@ All work targets game build `[Code]a84606af` (2026-08-25),
 
 ---
 
+## 0.7d, log clarity
+
+- The frame delta sanity check no longer warns on every launch. It ran at
+  install time, before the game had rendered a frame, so the value was
+  legitimately zero and the warning was misleading rather than informative. It
+  now checks on first use, where the value actually matters, and reports the
+  measured delta and framerate instead:
+
+      cloth: frame delta is 0.00417s (240 fps)
+
+  It warns only if the value is genuinely implausible, and only once.
+
+---
+
 ## 0.7c, hair solver
 
 - Fixed Snake's bandana floating above his head instead of draping, at any

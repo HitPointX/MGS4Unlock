@@ -6,7 +6,7 @@ The game ships with a "Max Frame Rate" setting offering 30, 40 and 60. This mod
 replaces that list with 30, 60, 120 and 240, makes the choice stick, and
 corrects the engine systems that do not scale correctly above 60.
 
-Current version: **0.7c** (beta)
+Current version: **0.7d** (beta)
 
 ## Status
 

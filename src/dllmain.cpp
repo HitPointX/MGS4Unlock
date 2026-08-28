@@ -18,7 +18,7 @@
 
 namespace
 {
-    constexpr const char* kVersion = "0.7c";
+    constexpr const char* kVersion = "0.7d";
 
     HMODULE g_self = nullptr;
 

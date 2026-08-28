@@ -120,6 +120,27 @@ namespace
     std::atomic<uint64_t> g_stepsSubstituted{0};
     std::atomic<uint64_t> g_hairCalls{0};
     std::atomic<uint32_t> g_hairChainCount{0};
+    std::atomic<bool> g_deltaChecked{false};
+
+    // Checked on first use rather than at install time. At install the game has
+    // not rendered a frame yet, so the delta is legitimately zero and warning
+    // about it only produces a misleading line in every user's log.
+    void CheckFrameDeltaOnce(float delta)
+    {
+        if (delta == 0.0f || g_deltaChecked.load(std::memory_order_relaxed))
+            return;
+
+        bool expected = false;
+        if (!g_deltaChecked.compare_exchange_strong(expected, true, std::memory_order_relaxed))
+            return;
+
+        // Anything from 1000 fps down to 10 fps is plausible.
+        if (delta > 0.0005f && delta < 0.2f && std::isfinite(delta))
+            logging::Info("cloth: frame delta is {:.5f}s ({:.0f} fps)", delta, 1.0f / delta);
+        else
+            logging::Warn("cloth: frame delta reads {}, which is outside the plausible range",
+                          delta);
+    }
 
     bool IsNativeTick()
     {
@@ -150,6 +171,8 @@ namespace
 
         const float exactDelta = g_frameDeltaSeconds ? *g_frameDeltaSeconds : 0.0f;
         const float stockStep = *taskStep;
+
+        CheckFrameDeltaOnce(exactDelta);
 
         const bool overAdvancing = exactDelta > 0.0f && std::isfinite(exactDelta) &&
                                    std::isfinite(stockStep) && stockStep > exactDelta &&
@@ -238,12 +261,6 @@ bool mgs4::InstallClothTiming(const void* frameTimingStruct, const void* frameTi
         static_cast<const uint8_t*>(frameTimingStruct) + kFrameDeltaOffset);
     g_frameTickDelta60 = static_cast<const int32_t*>(frameTickDelta60);
     logging::Address("frameDeltaSeconds", reinterpret_cast<uintptr_t>(g_frameDeltaSeconds));
-
-    // Sanity check the value before trusting it: a plausible frame delta is
-    // between 1000 fps and 10 fps.
-    const float delta = *g_frameDeltaSeconds;
-    if (!(delta > 0.0005f && delta < 0.2f) || !std::isfinite(delta))
-        logging::Warn("cloth: frame delta reads {}, which looks wrong", delta);
 
     const module_info::Section& text = module_info::Text();
 
