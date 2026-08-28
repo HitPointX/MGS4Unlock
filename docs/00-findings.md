@@ -36,16 +36,48 @@ code.
 At `.data:0x141b08de8` (RVA `0x1b08de8`), found by unique byte signature:
 
 ```
-0x141b08de8   int32[3]  { 30, 40, 60 }   selectable rates, -1 terminated
-0x141b08df4   int32     -1               cached target fps (sentinel before resolve)
+0x141b08de8   int32[3]  { 30, 40, 60 }   selectable rates
+0x141b08df4   int32     -1               cached target fps, -1 until resolved
 0x141b08df8   int32     1                flag
 0x141b08dfc   int32     0
-0x141b08e00   int32     128              max fps cap
+0x141b08e00   int32     128              unrelated to fps, see below
 ```
 
-The target-fps accessor reads and memoizes `0x141b08df4`, comparing it against the
-`-1` sentinel, and compares a computed rate against `0x141b08e00` (128). Those two
-operands are what identify the surrounding fields.
+The three functions that matter, all in one cluster:
+
+| Address | Role |
+|---|---|
+| `0x140140a50` | `mov eax,3 / ret`. Returns the option count. One caller. |
+| `0x140140a60` | Resolves and memoizes the target framerate into `0x141b08df4`. |
+| `0x140140c70` | Copies the three options into a caller-supplied buffer. Unrolled, no loop. One caller. |
+| `0x1414d95a0` | Menu populate. Calls all of the above. |
+
+**`128` is not an fps cap.** It is a platform identifier. `0x140140a60` calls a
+platform query and dispatches on the result (`0x80`, `1`, `8`, `0x38`) to choose
+which `FPSLimiter.FPS_*` config variable to read:
+
+```
+mov  eax, [0x141b08df4]      ; cached target
+cmp  eax, -1
+jne  <return it unchanged>   ; already resolved
+call <platform id>
+cmp  eax, 0x80 / 1 / 8 / 0x38
+lea  rcx, ["FPSLimiter.FPS_PC"]
+call <cvar lookup>
+test al, al
+jne  <mov eax, 0x3c>         ; lookup failed: fall back to 60
+...
+mov  [0x141b08df4], eax      ; memoize
+```
+
+**The player's saved choice is never read back into this path.** The game writes
+`fpsLimiter` to its settings file on quit, but on the next launch this function
+recomputes from the config variable, the lookup fails, and it settles on 60. That
+is why a rate above the stock list did not survive a relaunch.
+
+Because the function returns any non-`-1` cached value untouched, writing the
+wanted rate into `0x141b08df4` before the game first asks is sufficient, and
+needs no hook.
 
 **The menu has no numeric label strings.** The binary contains no `"30"`/`"40"`/`"60"`
 cluster, and `common/localization/lang/lang_en` supplies value labels for every
@@ -152,5 +184,13 @@ Toolchain lives in an Arch distrobox (`mgs4dev`): mingw-w64 g++ 16.2.0, cmake, n
 - Picker offers 30 / 60 / 120, selectable and persisted. **Confirmed in-game.**
 - Selecting 120 renders at 120 fps. **Confirmed in-game.**
 - Cutscene timing is gated to the native 60 Hz tick as of 0.6a.
-- 240 fps is blocked on `maxCap = 128` at `0x141b08e00`, and on the engine's 300 Hz
-  character tick (240 gives 1.25 ticks/frame; above 300 fps the model collapses).
+- The saved choice is restored at startup by seeding the cached target, so a rate
+  above the stock list now survives a relaunch.
+- 240 fps has no known cap standing in its way. The earlier reading of `128` as a
+  maximum was wrong. The remaining constraint is the engine's 300 Hz character
+  tick: 240 gives 1.25 ticks per frame, which is workable, while above 300 fps the
+  count drops below one tick per frame and the model breaks down.
+- A fourth picker entry is feasible: patch the immediate in `0x140140a50` from 3 to
+  4 and hook `0x140140c70` to fill four entries. Both have exactly one caller, and
+  the destination buffer at `+0x388` has room to spare before the next field at
+  `+0x400`.
