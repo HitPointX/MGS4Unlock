@@ -66,17 +66,30 @@ namespace
 
 std::optional<int> mgs4::ReadSavedFramerate(const std::filesystem::path& gameDir)
 {
+    // This is polled every second once the game is running, so failures are
+    // logged only once rather than flooding the log every tick.
+    static bool warnedMissingFile = false;
+    static bool warnedUnreadable = false;
+
     const std::filesystem::path file = FindSettingsFile(gameDir);
     if (file.empty())
     {
-        logging::Warn("savedsettings: could not find mgs4.savedsettings");
+        if (!warnedMissingFile)
+        {
+            logging::Warn("savedsettings: could not find mgs4.savedsettings");
+            warnedMissingFile = true;
+        }
         return std::nullopt;
     }
 
     std::ifstream in(file);
     if (!in)
     {
-        logging::Warn("savedsettings: could not read {}", narrow(file.wstring()));
+        if (!warnedUnreadable)
+        {
+            logging::Warn("savedsettings: could not read {}", narrow(file.wstring()));
+            warnedUnreadable = true;
+        }
         return std::nullopt;
     }
 
@@ -99,8 +112,8 @@ std::optional<int> mgs4::ReadSavedFramerate(const std::filesystem::path& gameDir
             return std::nullopt;
         }
 
-        logging::Info("savedsettings: {} has fpsLimiter={}", narrow(file.filename().wstring()),
-                      parsed);
+        // Not logged: this is polled every second to track live menu changes,
+        // so logging every read would flood the log with the common case.
         return parsed;
     }
 

@@ -323,3 +323,13 @@ bool mgs4::InstallFramerateClampBypass(int allowed)
     logging::Info("picker: the framerate clamp will now let {} fps through", allowed);
     return true;
 }
+
+void mgs4::SetFramerateClampAllowedValue(int allowed)
+{
+    if (allowed == g_clampAllowedValue)
+        return;
+
+    logging::Info("picker: the framerate clamp will now let {} fps through instead of {}", allowed,
+                  g_clampAllowedValue);
+    g_clampAllowedValue = allowed;
+}

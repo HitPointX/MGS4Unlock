@@ -1,6 +1,7 @@
 #include <windows.h>
 
 #include <filesystem>
+#include <optional>
 
 #include "core/config.h"
 #include "core/log.h"
@@ -129,11 +130,29 @@ namespace
         // other path sets it directly. Reasserting frequently catches drift
         // from any of them within a second or two rather than requiring every
         // writer to be individually found and hooked.
+        //
+        // When TargetFramerate is 0 (follow the menu), the desired value is not
+        // fixed: the player can pick a different rate and apply it mid-session,
+        // which updates the saved-settings file immediately. Re-reading it each
+        // tick, rather than only once at startup, is what lets a live menu
+        // change take effect instead of being fought back to the old value.
+        const bool followMenu = settings.targetFramerate == 0;
         unsigned tick = 0;
         for (;;)
         {
             ::Sleep(1000);
             ++tick;
+
+            if (followMenu)
+            {
+                if (const std::optional<int> live = mgs4::ReadSavedFramerate(dir);
+                    live && *live > 0 && *live != target)
+                {
+                    logging::Info("picker: live selection changed from {} to {}", target, *live);
+                    target = *live;
+                    mgs4::SetFramerateClampAllowedValue(target);
+                }
+            }
 
             if (target > 0 && settings.patchPicker)
                 mgs4::ReassertTargetFramerate(target);

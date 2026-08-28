@@ -14,6 +14,12 @@ namespace mgs4
     // unclamped; every other input keeps the stock 30/40/60 clamping behaviour.
     bool InstallFramerateClampBypass(int allowed);
 
+    // Changes which value the installed clamp bypass lets through, without
+    // reinstalling the hook. Needed because the player's live menu selection
+    // can change after startup, and the clamp must let the newly selected rate
+    // through too.
+    void SetFramerateClampAllowedValue(int allowed);
+
     // Seeds the engine's cached target framerate so it does not fall back to 60.
     //
     // The engine resolves its target once, on first use, from a config variable
