@@ -35,11 +35,6 @@ GateCutscenes = true
 ; Snake's coat and kilt sway at double speed above 60 fps.
 GateCloth = true
 
-; On frames where the cloth solver is skipped, re-publish the existing transform.
-; Off by default: it is meant to prevent judder, but causes a doubled or ghosted
-; image if the publish path advances a double buffer.
-ClothPublishOnSkip = false
-
 ; Writes the decrypted .text/.rdata/.data to dump/ after the DRM stub runs.
 ; Only needed when developing new signatures; costs ~30 MB per launch.
 DumpSections = false
@@ -178,11 +173,6 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.gateCloth))
                 logging::Warn("config: GateCloth is not a boolean: '{}'", value);
-        }
-        else if (key == "ClothPublishOnSkip")
-        {
-            if (!ParseBool(value, g_settings.clothPublishOnSkip))
-                logging::Warn("config: ClothPublishOnSkip is not a boolean: '{}'", value);
         }
         else if (key == "DumpSections")
         {

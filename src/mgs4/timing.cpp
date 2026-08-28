@@ -38,22 +38,40 @@ namespace
     // 1/60 per call, so above 60 fps the simulation advances faster than
     // wall-clock time and the sway visibly speeds up.
     //
-    // Gating the solver to the engine's native tick fixes the rate, but skipping
-    // the call outright would leave the renderer drawing a stale transform on
-    // the frames in between, which reads as judder. The engine separates the two:
-    // a publish entry point pushes the current transform without integrating, so
-    // on skipped frames we publish and only the integration is throttled.
+    // The producer update is not just a solver call. Its first ~0xC4 bytes drain
+    // two internal command queues and unconditionally flip a bit at producer+0x14
+    // that looks like a double-buffer selector -- it runs on every call the
+    // manager makes, which is every frame, regardless of whether anything
+    // actually needs to simulate. Skipping the whole function on non-native
+    // frames (as an early attempt here did) skips that bookkeeping too, and the
+    // renderer ends up reading mismatched buffer state, which showed as a
+    // doubled, ghosted image rather than the judder that gating usually causes.
+    //
+    // The function's own internal logic already separates the two concerns: past
+    // the bookkeeping, it runs a couple of hash-gated checks and, when they say
+    // there is nothing to simulate, jumps straight to a call into the transform
+    // publish function and then a shared epilogue. That is the exact behaviour
+    // we want on a non-native frame, and it is a path the stock code already
+    // takes under some conditions, not a control-flow shape invented here.
+    //
+    // So rather than hook the function's entry, a mid-hook sits at the start of
+    // the simulate-or-not decision (right before the first hash-gate call) and,
+    // on a non-native frame, redirects straight to that existing publish-then-
+    // return path. The bookkeeping before this point always runs; only the
+    // simulation body in between is skipped. The block between the two
+    // addresses was checked with a full disassembly (not a raw byte scan) and
+    // contains no push/pop/stack-pointer adjustment, so the redirect lands with
+    // the same stack frame and the same live registers (producer pointer in
+    // rbx, a zero constant in r14) that the target expects.
     constexpr const char* kClothProducerUpdateSignature =
         "48 89 5C 24 18 55 57 41 56 48 81 EC 10 01 00 00 48 8B B9 70 03 00 00 "
         "45 33 F6 41 8B E8 48 8B D9";
+    constexpr ptrdiff_t kClothSimulateGateOffset = 0xC4;    // call <hash gate>
+    constexpr ptrdiff_t kClothPublishAndReturnOffset = 0x3C2; // mov rcx,rbx / call publish
+    constexpr uint8_t kClothSimulateGateOpcode = 0xE8; // call rel32
 
-    constexpr const char* kClothTransformPublishSignature =
-        "48 8B 41 08 4C 8B D1 83 38 00 C7 40 04 00 00 00 00 74 ?? 49 8B 42 08 "
-        "4C 63 40 04 44 3B 00";
-
-    using ClothTransformPublishFn = void(__fastcall*)(uint8_t*);
-    ClothTransformPublishFn g_clothTransformPublish = nullptr;
-    SafetyHookInline g_clothProducerUpdate{};
+    SafetyHookMid g_clothSimulateGate{};
+    uintptr_t g_clothPublishAndReturnTarget = 0;
 
     std::atomic<uint64_t> g_clothCalls{0};
     std::atomic<uint64_t> g_clothSkipped{0};
@@ -86,26 +104,15 @@ namespace
         return g_frameTickDelta60 == nullptr || *g_frameTickDelta60 != 0;
     }
 
-    void __fastcall ClothProducerUpdateHook(uint8_t* producer, float updateArgument,
-                                            int32_t updateType)
+    void ClothSimulateGateHook(SafetyHookContext& ctx)
     {
         g_clothCalls.fetch_add(1, std::memory_order_relaxed);
 
         if (IsNativeTick())
-        {
-            g_clothProducerUpdate.unsafe_call(producer, updateArgument, updateType);
             return;
-        }
 
         g_clothSkipped.fetch_add(1, std::memory_order_relaxed);
-
-        // Publishing on a skipped frame is meant to keep the renderer from
-        // drawing a stale transform. If the publish path also advances a
-        // double buffer, though, calling it without a fresh simulation makes
-        // the renderer alternate between two states, which reads as a doubled
-        // or ghosted image. Configurable so both behaviours can be compared.
-        if (config::Get().clothPublishOnSkip && producer && g_clothTransformPublish)
-            g_clothTransformPublish(producer);
+        ctx.rip = g_clothPublishAndReturnTarget;
     }
 
     void PolygonDemoUpdateHook(uint8_t* demo)
@@ -168,30 +175,35 @@ bool mgs4::InstallClothTimingFix()
 {
     const module_info::Section& text = module_info::Text();
 
-    const size_t publishMatches = memory::CountMatches(text, kClothTransformPublishSignature);
     const size_t updateMatches = memory::CountMatches(text, kClothProducerUpdateSignature);
-    if (publishMatches != 1 || updateMatches != 1)
+    if (updateMatches != 1)
     {
-        logging::Error("timing: cloth signatures matched {} and {} times, expected 1 each",
-                       updateMatches, publishMatches);
+        logging::Error("timing: cloth producer signature matched {} times, expected 1",
+                       updateMatches);
         return false;
     }
 
-    uint8_t* publish = memory::Scan(text, kClothTransformPublishSignature);
     uint8_t* update = memory::Scan(text, kClothProducerUpdateSignature);
-    logging::Address("clothTransformPublish", reinterpret_cast<uintptr_t>(publish));
     logging::Address("clothProducerUpdate", reinterpret_cast<uintptr_t>(update));
 
-    // Publishing on skipped frames is what keeps the cloth from juddering, so
-    // there is no point gating without it.
-    g_clothTransformPublish = reinterpret_cast<ClothTransformPublishFn>(publish);
-
-    g_clothProducerUpdate =
-        safetyhook::create_inline(update, reinterpret_cast<void*>(&ClothProducerUpdateHook));
-    if (!g_clothProducerUpdate)
+    uint8_t* gate = update + kClothSimulateGateOffset;
+    if (*gate != kClothSimulateGateOpcode)
     {
-        logging::Error("timing: failed to hook the cloth producer update");
-        g_clothTransformPublish = nullptr;
+        logging::Error("timing: expected a call at the cloth simulate-gate site, found {:02X}",
+                       gate[0]);
+        return false;
+    }
+
+    g_clothPublishAndReturnTarget =
+        reinterpret_cast<uintptr_t>(update) + kClothPublishAndReturnOffset;
+    logging::Address("clothSimulateGate", reinterpret_cast<uintptr_t>(gate));
+    logging::Address("clothPublishAndReturn", g_clothPublishAndReturnTarget);
+
+    g_clothSimulateGate = safetyhook::create_mid(gate, &ClothSimulateGateHook);
+    if (!g_clothSimulateGate)
+    {
+        logging::Error("timing: failed to hook the cloth simulate gate");
+        g_clothPublishAndReturnTarget = 0;
         return false;
     }
 
