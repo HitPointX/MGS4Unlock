@@ -32,6 +32,11 @@ namespace config
         // this, cutscenes play at double speed above 60 fps.
         bool gateCutscenes = true;
 
+        // Corrects character movement and animation speed above 60 fps, by
+        // carrying the fractional part of the 300 Hz character tick between
+        // frames instead of discarding it.
+        bool fixCharacterTiming = true;
+
         // Corrects cloth timing above 60 fps. Covers the shared simulation
         // task timing as well as the cloth solver itself: gating the solver
         // alone leaves cloth and the rest of the pipeline on different clocks.

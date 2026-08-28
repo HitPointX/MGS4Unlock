@@ -9,6 +9,7 @@
 #include "core/module.h"
 #include "core/pdata.h"
 #include "dumper/dumper.h"
+#include "mgs4/character.h"
 #include "mgs4/cloth.h"
 #include "mgs4/picker.h"
 #include "mgs4/savedsettings.h"
@@ -124,6 +125,17 @@ namespace
             logging::Info("timing: cutscene gating disabled by config");
         }
 
+        // Character timing also depends on the frame timing struct.
+        if (settings.fixCharacterTiming)
+        {
+            if (!mgs4::InstallCharacterTiming(mgs4::FrameTimingStruct()))
+                logging::Error("character: animation will run slow above 60 fps");
+        }
+        else
+        {
+            logging::Info("character: character timing disabled by config");
+        }
+
         // Cloth timing depends on the frame timing globals the cutscene fix
         // resolves, so it has to come after it.
         if (settings.gateCloth)
@@ -175,6 +187,7 @@ namespace
             {
                 mgs4::LogTimingCounters();
                 mgs4::LogClothCounters();
+                mgs4::LogCharacterCounters();
                 if (settings.patchPicker)
                     mgs4::ReassertFrameratePicker();
             }

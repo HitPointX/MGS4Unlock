@@ -35,6 +35,10 @@ PatchPicker = true
 ; cutscenes run at double speed above 60 fps.
 GateCutscenes = true
 
+; Corrects character movement and animation speed above 60 fps. Without this,
+; animation runs slow, slightly at 120 and noticeably at 240.
+FixCharacterTiming = true
+
 ; Corrects cloth timing above 60 fps. Without this, cloth sways at double speed
 ; at 120 and four times at 240.
 GateCloth = true
@@ -186,6 +190,11 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.gateCutscenes))
                 logging::Warn("config: GateCutscenes is not a boolean: '{}'", value);
+        }
+        else if (key == "FixCharacterTiming")
+        {
+            if (!ParseBool(value, g_settings.fixCharacterTiming))
+                logging::Warn("config: FixCharacterTiming is not a boolean: '{}'", value);
         }
         else if (key == "GateCloth")
         {
