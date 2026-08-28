@@ -37,6 +37,12 @@ namespace config
         // alone leaves cloth and the rest of the pipeline on different clocks.
         bool gateCloth = true;
 
+        // On frames where the cloth solver is gated, re-publish the transform
+        // the last simulated frame produced. Intended to keep the renderer from
+        // drawing stale data, but it is also the remaining suspect for the
+        // doubled skirt, so it is switchable.
+        bool clothPublishOnSkip = true;
+
         // Observation-only hooks on the remaining cloth solvers, reporting
         // which instances each one handles. Costs nothing but a counter.
         bool clothDiagnostics = true;

@@ -39,6 +39,11 @@ GateCutscenes = true
 ; at 120 and four times at 240.
 GateCloth = true
 
+; On frames where the cloth solver is gated, re-publish the last simulated
+; transform. Try flipping this to false if cloth shows a doubled or ghosted
+; overlay.
+ClothPublishOnSkip = true
+
 ; Observation-only hooks on the remaining cloth solvers. Reports which garment
 ; instances each one handles, to identify which solver drives what.
 ClothDiagnostics = true
@@ -186,6 +191,11 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.gateCloth))
                 logging::Warn("config: GateCloth is not a boolean: '{}'", value);
+        }
+        else if (key == "ClothPublishOnSkip")
+        {
+            if (!ParseBool(value, g_settings.clothPublishOnSkip))
+                logging::Warn("config: ClothPublishOnSkip is not a boolean: '{}'", value);
         }
         else if (key == "ClothDiagnostics")
         {

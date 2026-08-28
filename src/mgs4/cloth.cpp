@@ -155,7 +155,7 @@ namespace
         // so the renderer draws something current-looking, without advancing the
         // solver.
         g_producerGated.fetch_add(1, std::memory_order_relaxed);
-        if (producer && g_clothTransformPublish)
+        if (config::Get().clothPublishOnSkip && producer && g_clothTransformPublish)
             g_clothTransformPublish(producer);
     }
 } // namespace
