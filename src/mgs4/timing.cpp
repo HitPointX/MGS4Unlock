@@ -98,7 +98,13 @@ namespace
         }
 
         g_clothSkipped.fetch_add(1, std::memory_order_relaxed);
-        if (producer && g_clothTransformPublish)
+
+        // Publishing on a skipped frame is meant to keep the renderer from
+        // drawing a stale transform. If the publish path also advances a
+        // double buffer, though, calling it without a fresh simulation makes
+        // the renderer alternate between two states, which reads as a doubled
+        // or ghosted image. Configurable so both behaviours can be compared.
+        if (config::Get().clothPublishOnSkip && producer && g_clothTransformPublish)
             g_clothTransformPublish(producer);
     }
 

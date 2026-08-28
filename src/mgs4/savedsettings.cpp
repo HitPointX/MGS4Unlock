@@ -33,11 +33,22 @@ namespace
     {
         // Layout is <game>/MGS4/<our dll> and <game>/mgs4_savedata_win/<id>/mgs4/.
         // The account id is not known to us, so scan for it.
-        const std::filesystem::path saves = gameDir.parent_path() / "mgs4_savedata_win";
+        //
+        // gameDir arrives with a trailing separator, which makes its last
+        // component empty, so parent_path() would only strip the separator
+        // rather than moving up a level. Normalise before walking up.
+        std::filesystem::path base = gameDir;
+        if (base.filename().empty())
+            base = base.parent_path();
+
+        const std::filesystem::path saves = base.parent_path() / "mgs4_savedata_win";
 
         std::error_code ec;
         if (!std::filesystem::is_directory(saves, ec))
+        {
+            logging::Warn("savedsettings: no save directory at {}", narrow(saves.wstring()));
             return {};
+        }
 
         for (const auto& account : std::filesystem::directory_iterator(saves, ec))
         {

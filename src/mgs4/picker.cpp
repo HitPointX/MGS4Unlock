@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
+
+#include <safetyhook.hpp>
 
 #include "core/config.h"
 #include "core/log.h"
@@ -22,6 +25,35 @@
 
 namespace
 {
+    // The framerate cvar-apply function clamps any parsed value into
+    // {30, 40, 60}: below 30 snaps to 30, above 60 snaps to 60, and values in
+    // between land on 30 or 40 depending on how close they are. It runs
+    // whenever a config value is (re)applied, which is why a value seeded once
+    // into the cached target does not stay put: this clamp eventually runs
+    // again and puts 60 straight back.
+    //
+    // The signature covers the function's real prologue and is verified unique
+    // across .text. The mid-hook lands a fixed offset further in, at the first
+    // instruction of the clamp itself, which is validated against its exact
+    // bytes before the hook is installed.
+    constexpr const char* kClampFunctionSignature =
+        "48 89 5C 24 18 55 48 8D 6C 24 A9 48 81 EC 90 00 00 00 48";
+    constexpr ptrdiff_t kClampOffset = 0xB4;                          // cmp ecx,0x3c
+    constexpr ptrdiff_t kClampStoreOffset = 0x1A;                     // mov [rip+d],ecx
+    constexpr std::array<uint8_t, 3> kClampFirstInstruction = {0x83, 0xF9, 0x3C};
+
+    SafetyHookMid g_clampBypass{};
+    int g_clampAllowedValue = 0;
+
+    void ClampBypassHook(SafetyHookContext& ctx)
+    {
+        // ecx holds the parsed value at this point. Anything other than our one
+        // allowed value falls through unchanged, so the stock 30/40/60 clamping
+        // still applies to everything else.
+        if (static_cast<int32_t>(ctx.rcx & 0xFFFFFFFF) == g_clampAllowedValue)
+            ctx.rip += kClampStoreOffset;
+    }
+
     constexpr uintptr_t kKnownTableRva = 0x1b08de8;
 
     // entries[3] is the engine's memoized target framerate, -1 until resolved.
@@ -238,5 +270,42 @@ bool mgs4::SeedTargetFramerate(int framerate)
     }
 
     logging::Info("picker: seeded the engine's target framerate to {} (was unresolved)", framerate);
+    return true;
+}
+
+bool mgs4::InstallFramerateClampBypass(int allowed)
+{
+    const module_info::Section& text = module_info::Text();
+
+    const size_t matches = memory::CountMatches(text, kClampFunctionSignature);
+    if (matches != 1)
+    {
+        logging::Error("picker: the clamp function signature matched {} times, expected 1",
+                       matches);
+        return false;
+    }
+
+    uint8_t* function = memory::Scan(text, kClampFunctionSignature);
+    uint8_t* clamp = function + kClampOffset;
+
+    if (std::memcmp(clamp, kClampFirstInstruction.data(), kClampFirstInstruction.size()) != 0)
+    {
+        logging::Error("picker: expected cmp ecx,0x3c at the clamp site, found {:02X} {:02X} {:02X}",
+                       clamp[0], clamp[1], clamp[2]);
+        return false;
+    }
+
+    logging::Address("framerateClampFunction", reinterpret_cast<uintptr_t>(function));
+    logging::Address("framerateClampSite", reinterpret_cast<uintptr_t>(clamp));
+
+    g_clampAllowedValue = allowed;
+    g_clampBypass = safetyhook::create_mid(clamp, &ClampBypassHook);
+    if (!g_clampBypass)
+    {
+        logging::Error("picker: failed to hook the framerate clamp");
+        return false;
+    }
+
+    logging::Info("picker: the framerate clamp will now let {} fps through", allowed);
     return true;
 }

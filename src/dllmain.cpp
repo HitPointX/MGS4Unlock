@@ -60,6 +60,7 @@ namespace
         // The picker table is in .data, so this does not have to wait for the
         // Steam stub. Do it first: it is the one change that must land before
         // the player reaches the options menu.
+        int target = 0;
         if (settings.patchPicker)
         {
             if (!mgs4::PatchFrameratePicker())
@@ -68,7 +69,7 @@ namespace
             // The game saves the chosen rate but never loads it back into its
             // target-framerate path, so a rate above the stock list silently
             // reverts to 60 on the next launch. Restore it here.
-            int target = settings.targetFramerate;
+            target = settings.targetFramerate;
             if (target == 0)
                 target = mgs4::ReadSavedFramerate(dir).value_or(0);
 
@@ -92,6 +93,16 @@ namespace
 
         if (settings.dumpSections)
             dumper::DumpSections(dir / "dump");
+
+        // The seed above only holds until the game next re-applies its
+        // framerate config value, which runs it back through a clamp that snaps
+        // anything above 60 straight back down. Bypass that clamp for our one
+        // target value so the seed actually stays put.
+        if (target > 0)
+        {
+            if (!mgs4::InstallFramerateClampBypass(target))
+                logging::Error("picker: the framerate may revert to 60 after the next config reapply");
+        }
 
         if (settings.gateCutscenes)
         {

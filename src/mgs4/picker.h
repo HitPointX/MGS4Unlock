@@ -7,6 +7,13 @@ namespace mgs4
     // decrypting .text: the table lives in .data, which is never encrypted.
     bool PatchFrameratePicker();
 
+    // Installs a mid-hook on the config-value clamp that snaps any requested
+    // framerate above 60 back down to 60. Without this, seeding the cached
+    // target only holds until the clamp runs again, which happens periodically.
+    // `allowed` is the one value the clamp should be allowed to let through
+    // unclamped; every other input keeps the stock 30/40/60 clamping behaviour.
+    bool InstallFramerateClampBypass(int allowed);
+
     // Seeds the engine's cached target framerate so it does not fall back to 60.
     //
     // The engine resolves its target once, on first use, from a config variable

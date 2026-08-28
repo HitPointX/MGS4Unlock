@@ -28,6 +28,12 @@ namespace config
         // Gates the cloth solver to the engine's native 60 Hz tick.
         bool gateCloth = true;
 
+        // On frames where the cloth solver is skipped, re-publish the existing
+        // transform instead of leaving it untouched. Intended to avoid judder,
+        // but if the publish path advances a double buffer it causes ghosting
+        // instead, so it defaults off.
+        bool clothPublishOnSkip = false;
+
         // Writes the decrypted sections to disk once the DRM stub has run, for
         // offline analysis. Off by default: it costs ~30 MB per launch.
         bool dumpSections = false;
