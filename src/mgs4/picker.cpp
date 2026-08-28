@@ -273,6 +273,20 @@ bool mgs4::SeedTargetFramerate(int framerate)
     return true;
 }
 
+void mgs4::ReassertTargetFramerate(int framerate)
+{
+    if (!g_table)
+        return;
+
+    int32_t* cached = &g_table[kCachedTargetIndex];
+    if (*cached == framerate)
+        return;
+
+    logging::Warn("picker: target framerate drifted to {}, forcing back to {}", *cached, framerate);
+    if (memory::Write(cached, static_cast<int32_t>(framerate)))
+        logging::Info("picker: target framerate restored to {}", framerate);
+}
+
 bool mgs4::InstallFramerateClampBypass(int allowed)
 {
     const module_info::Section& text = module_info::Text();

@@ -26,4 +26,14 @@ namespace mgs4
     // Re-reads the option table, reports what the engine resolved as its target
     // framerate, and rewrites the options if something put the stock list back.
     void ReassertFrameratePicker();
+
+    // Re-reads the cached target framerate and forces it back to `framerate` if
+    // it no longer matches. Unlike SeedTargetFramerate, this overwrites a value
+    // the engine has already resolved.
+    //
+    // At least one code path sets the target directly through a small setter
+    // function that bypasses the clamp bypass hook entirely, so seeding once and
+    // clamp-bypassing the config-apply path are not sufficient on their own.
+    // Polling for drift catches it regardless of which path caused it.
+    void ReassertTargetFramerate(int framerate);
 } // namespace mgs4

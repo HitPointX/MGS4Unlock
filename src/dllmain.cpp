@@ -124,14 +124,26 @@ namespace
             logging::Info("timing: cloth gating disabled by config");
         }
 
-        // Periodic counters are the cheapest way to confirm from the log alone
-        // that a hook is firing on the frames we expect.
+        // The target framerate can be reset by more than one code path -- the
+        // clamp bypass above covers the config-apply route, but at least one
+        // other path sets it directly. Reasserting frequently catches drift
+        // from any of them within a second or two rather than requiring every
+        // writer to be individually found and hooked.
+        unsigned tick = 0;
         for (;;)
         {
-            ::Sleep(30000);
-            mgs4::LogTimingCounters();
-            if (settings.patchPicker)
-                mgs4::ReassertFrameratePicker();
+            ::Sleep(1000);
+            ++tick;
+
+            if (target > 0 && settings.patchPicker)
+                mgs4::ReassertTargetFramerate(target);
+
+            if (tick % 30 == 0)
+            {
+                mgs4::LogTimingCounters();
+                if (settings.patchPicker)
+                    mgs4::ReassertFrameratePicker();
+            }
         }
     }
 } // namespace
