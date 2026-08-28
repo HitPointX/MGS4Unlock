@@ -23,6 +23,10 @@ PickerValues = 30, 60, 120
 ; Set to false to leave the picker untouched.
 PatchPicker = true
 
+; Writes the decrypted .text/.rdata/.data to dump/ after the DRM stub runs.
+; Only needed when developing new signatures; costs ~30 MB per launch.
+DumpSections = false
+
 ; Milliseconds to wait for the Steam DRM stub to decrypt .text before giving up.
 UnpackTimeoutMs = 30000
 )";
@@ -142,6 +146,11 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.patchPicker))
                 logging::Warn("config: PatchPicker is not a boolean: '{}'", value);
+        }
+        else if (key == "DumpSections")
+        {
+            if (!ParseBool(value, g_settings.dumpSections))
+                logging::Warn("config: DumpSections is not a boolean: '{}'", value);
         }
         else if (key == "UnpackTimeoutMs")
         {

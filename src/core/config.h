@@ -16,6 +16,10 @@ namespace config
         // Master switch for the picker patch.
         bool patchPicker = true;
 
+        // Writes the decrypted sections to disk once the DRM stub has run, for
+        // offline analysis. Off by default: it costs ~30 MB per launch.
+        bool dumpSections = false;
+
         // How long to wait for the Steam DRM stub to decrypt .text.
         unsigned unpackTimeoutMs = 30000;
     };

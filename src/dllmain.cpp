@@ -7,6 +7,7 @@
 #include "core/memory.h"
 #include "core/module.h"
 #include "core/pdata.h"
+#include "dumper/dumper.h"
 #include "mgs4/picker.h"
 #include "proxy/proxy.h"
 
@@ -76,6 +77,10 @@ namespace
         }
 
         logging::Info("module: ready for code scanning");
+
+        if (settings.dumpSections)
+            dumper::DumpSections(dir / "dump");
+
         return 0;
     }
 } // namespace

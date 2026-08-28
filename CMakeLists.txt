@@ -21,6 +21,7 @@ add_library(MGS4Unlock SHARED
     src/core/memory.cpp
     src/core/module.cpp
     src/core/pdata.cpp
+    src/dumper/dumper.cpp
     src/mgs4/picker.cpp
 )
 
