@@ -15,12 +15,18 @@ Usage:
 """
 
 import argparse
+import os
 import struct
 import sys
 from pathlib import Path
 
+# Override with MGS4_EXE, or pass --exe.
 DEFAULT_EXE = Path(
-    "/home/hit/.local/share/Steam/steamapps/common/METAL GEAR SOLID 4/MGS4/mgs4.exe"
+    os.environ.get(
+        "MGS4_EXE",
+        Path.home()
+        / ".local/share/Steam/steamapps/common/METAL GEAR SOLID 4/MGS4/mgs4.exe",
+    )
 )
 
 
