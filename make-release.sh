@@ -36,7 +36,16 @@ echo ">> building $NAME"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 
-cp build/dbghelp.dll "$STAGE/dbghelp.dll"
+# Prefer an installed build of this same version, if one is present and was
+# built from the current sources, so the archive holds the binary that was
+# actually launched and confirmed rather than a fresh equivalent.
+if [[ -f "$INSTALLED" ]] && [[ "$INSTALLED" -nt src/dllmain.cpp ]]; then
+    echo ">> packaging the installed build (tested in game)"
+    cp "$INSTALLED" "$STAGE/dbghelp.dll"
+else
+    echo ">> packaging the fresh build (no tested build installed)"
+    cp build/dbghelp.dll "$STAGE/dbghelp.dll"
+fi
 cp LICENSE "$STAGE/LICENSE"
 sed "s/@VERSION@/$VERSION/g" packaging/INSTALL.txt > "$STAGE/INSTALL.txt"
 
