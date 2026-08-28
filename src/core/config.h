@@ -66,6 +66,12 @@ namespace config
         };
         ClothMode clothMode = ClothMode::Delta;
 
+        // Give the hair solver a fixed step near 1/60 instead of the real frame
+        // delta. Snake's bandana floats up off his head without this, because
+        // gravity scales down with the step while the chain constraints keep
+        // their stiffness, so the chain never settles.
+        bool hairFixedStep = true;
+
         // On frames where the cloth solver is gated, re-publish the transform
         // the last simulated frame produced. Intended to keep the renderer from
         // drawing stale data, but it is also the remaining suspect for the

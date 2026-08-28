@@ -50,6 +50,11 @@ GateCloth = true
 ; comparison.
 ClothMode = delta
 
+; Give the hair solver a fixed step near 1/60 rather than the real frame time.
+; Without this, Snake's bandana floats above his head at high framerates
+; instead of draping.
+HairFixedStep = true
+
 ; On frames where the cloth solver is gated, re-publish the last simulated
 ; transform. Try flipping this to false if cloth shows a doubled or ghosted
 ; overlay.
@@ -214,6 +219,11 @@ void config::Load(const std::filesystem::path& file)
                 g_settings.clothMode = Settings::ClothMode::Delta;
             else
                 logging::Warn("config: ClothMode must be gate or delta: '{}'", value);
+        }
+        else if (key == "HairFixedStep")
+        {
+            if (!ParseBool(value, g_settings.hairFixedStep))
+                logging::Warn("config: HairFixedStep is not a boolean: '{}'", value);
         }
         else if (key == "GateCloth")
         {

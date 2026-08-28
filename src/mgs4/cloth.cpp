@@ -74,6 +74,22 @@ namespace
         "48 8B 41 08 4C 8B D1 83 38 00 C7 40 04 00 00 00 00 74 ?? 49 8B 42 08 "
         "4C 63 40 04 44 3B 00";
 
+    // Snake's bandana runs through a separate hair solver, and it does not want
+    // the real frame delta the way the rest of the simulation does. Fed a much
+    // shorter step it floats up off his head instead of draping: gravity is
+    // integrated per step and so scales down with the step, while the chain
+    // constraints keep their stiffness, so the chain never settles.
+    //
+    // Giving it a fixed step near 1/60 regardless of framerate keeps the solve
+    // in the regime it was tuned for. The step is the engine's own reference
+    // value rather than a round 1/60.
+    constexpr const char* kHairSimulationUpdateSignature =
+        "40 53 48 81 EC D0 00 00 00 48 8B D9 E8 ?? ?? ?? ?? E8 ?? ?? ?? ?? "
+        "48 8B 81 48 02 00 00 48 85 C0";
+
+    constexpr float kHairReferenceStep = 0.016683351f; // 1/59.94
+    constexpr ptrdiff_t kHairChainCountOffset = 0x260;
+
     // A step longer than this is not a plausible per-frame simulation step and
     // is left alone: it means the caller is doing something other than
     // advancing one frame.
@@ -85,6 +101,7 @@ namespace
     using ClothTransformPublishFn = void(__fastcall*)(uint8_t*);
 
     SafetyHookInline g_spursTaskTiming{};
+    SafetyHookInline g_hairSimulationUpdate{};
     SafetyHookInline g_clothManagerUpdate{};
     SafetyHookInline g_clothProducerUpdate{};
     ClothTransformPublishFn g_clothTransformPublish = nullptr;
@@ -96,10 +113,13 @@ namespace
     // engine's job threads.
     thread_local bool t_inClothManager = false;
     thread_local bool t_inClothProducer = false;
+    thread_local bool t_inHair = false;
 
     std::atomic<uint64_t> g_producerCalls{0};
     std::atomic<uint64_t> g_producerGated{0};
     std::atomic<uint64_t> g_stepsSubstituted{0};
+    std::atomic<uint64_t> g_hairCalls{0};
+    std::atomic<uint32_t> g_hairChainCount{0};
 
     bool IsNativeTick()
     {
@@ -111,6 +131,15 @@ namespace
         uint64_t stepCount = g_spursTaskTiming.unsafe_call<uint64_t>(taskStep, maxSteps);
         if (!taskStep)
             return stepCount;
+
+        // The hair solver is unstable on a short step, so it gets a fixed one
+        // near 1/60 no matter the framerate. Returning a single step stops the
+        // engine compensating by running several.
+        if (t_inHair && config::Get().hairFixedStep)
+        {
+            *taskStep = kHairReferenceStep;
+            return maxSteps < 1 ? maxSteps : 1;
+        }
 
         // In gate mode cloth keeps its native step and is rate-limited by
         // gating instead, so it is excluded here. In delta mode it is treated
@@ -133,6 +162,22 @@ namespace
         *taskStep = exactDelta;
         g_stepsSubstituted.fetch_add(1, std::memory_order_relaxed);
         return 1;
+    }
+
+    void __fastcall HairSimulationUpdateHook(uint8_t* hair)
+    {
+        g_hairCalls.fetch_add(1, std::memory_order_relaxed);
+
+        const bool previous = t_inHair;
+        if (hair)
+        {
+            const uint32_t chains = *reinterpret_cast<uint32_t*>(hair + kHairChainCountOffset);
+            g_hairChainCount.store(chains, std::memory_order_relaxed);
+            t_inHair = true;
+        }
+
+        g_hairSimulationUpdate.unsafe_call(hair);
+        t_inHair = previous;
     }
 
     void __fastcall ClothManagerUpdateHook(uint8_t* manager, float updateArgument,
@@ -214,6 +259,7 @@ bool mgs4::InstallClothTiming(const void* frameTimingStruct, const void* frameTi
         {"clothManagerUpdate", kClothManagerUpdateSignature, nullptr},
         {"clothProducerUpdate", kClothProducerUpdateSignature, nullptr},
         {"clothTransformPublish", kClothTransformPublishSignature, nullptr},
+        {"hairSimulationUpdate", kHairSimulationUpdateSignature, nullptr},
     };
 
     for (Target& target : targets)
@@ -236,13 +282,17 @@ bool mgs4::InstallClothTiming(const void* frameTimingStruct, const void* frameTi
         targets[1].address, reinterpret_cast<void*>(&ClothManagerUpdateHook));
     g_clothProducerUpdate = safetyhook::create_inline(
         targets[2].address, reinterpret_cast<void*>(&ClothProducerUpdateHook));
+    g_hairSimulationUpdate = safetyhook::create_inline(
+        targets[4].address, reinterpret_cast<void*>(&HairSimulationUpdateHook));
 
-    if (!g_spursTaskTiming || !g_clothManagerUpdate || !g_clothProducerUpdate)
+    if (!g_spursTaskTiming || !g_clothManagerUpdate || !g_clothProducerUpdate ||
+        !g_hairSimulationUpdate)
     {
         logging::Error("cloth: one or more hooks failed to install");
         g_spursTaskTiming = {};
         g_clothManagerUpdate = {};
         g_clothProducerUpdate = {};
+        g_hairSimulationUpdate = {};
         g_clothTransformPublish = nullptr;
         return false;
     }
@@ -261,4 +311,12 @@ void mgs4::LogClothCounters()
     logging::Info("cloth: producer called {} times, {} gated ({:.1f}%), {} task steps substituted",
                   calls, gated, 100.0 * static_cast<double>(gated) / static_cast<double>(calls),
                   g_stepsSubstituted.load(std::memory_order_relaxed));
+
+    const uint64_t hair = g_hairCalls.load(std::memory_order_relaxed);
+    if (hair != 0)
+    {
+        logging::Info("cloth: hair solver called {} times, chain count {}, fixed step {}", hair,
+                      g_hairChainCount.load(std::memory_order_relaxed),
+                      config::Get().hairFixedStep ? "on" : "off");
+    }
 }
