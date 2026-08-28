@@ -42,6 +42,28 @@ namespace config
         // alone leaves cloth and the rest of the pipeline on different clocks.
         bool gateCloth = true;
 
+        // How cloth itself is kept at the right rate once the shared task
+        // timing is corrected. Two genuinely different approaches:
+        //
+        //   Gate  - cloth keeps its native fixed step and the solver is run
+        //           only on native 60 Hz frames. Preserves the exact solver
+        //           behaviour it was tuned for, but means cloth state is only
+        //           refreshed on some frames.
+        //   Delta - cloth is treated like any other task and simulated every
+        //           frame with the real frame delta. Nothing is ever skipped,
+        //           at the cost of feeding a stiff solver a step it was not
+        //           tuned for.
+        //
+        // Gate is the default. Delta exists because every artefact seen so far
+        // has been on a gated frame, and this removes gating entirely rather
+        // than changing what a gated frame does.
+        enum class ClothMode
+        {
+            Gate,
+            Delta,
+        };
+        ClothMode clothMode = ClothMode::Gate;
+
         // On frames where the cloth solver is gated, re-publish the transform
         // the last simulated frame produced. Intended to keep the renderer from
         // drawing stale data, but it is also the remaining suspect for the

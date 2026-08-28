@@ -43,6 +43,12 @@ FixCharacterTiming = true
 ; at 120 and four times at 240.
 GateCloth = true
 
+; How cloth is kept at the right rate. "gate" runs the solver only on native
+; 60 Hz frames, keeping its original fixed step. "delta" simulates every frame
+; using the real frame time and never skips. Try "delta" if cloth shows a
+; doubled or ghosted overlay.
+ClothMode = gate
+
 ; On frames where the cloth solver is gated, re-publish the last simulated
 ; transform. Try flipping this to false if cloth shows a doubled or ghosted
 ; overlay.
@@ -195,6 +201,18 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.fixCharacterTiming))
                 logging::Warn("config: FixCharacterTiming is not a boolean: '{}'", value);
+        }
+        else if (key == "ClothMode")
+        {
+            std::string lowered(value);
+            std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (lowered == "gate")
+                g_settings.clothMode = Settings::ClothMode::Gate;
+            else if (lowered == "delta")
+                g_settings.clothMode = Settings::ClothMode::Delta;
+            else
+                logging::Warn("config: ClothMode must be gate or delta: '{}'", value);
         }
         else if (key == "GateCloth")
         {

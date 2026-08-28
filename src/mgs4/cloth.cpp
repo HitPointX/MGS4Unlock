@@ -108,8 +108,11 @@ namespace
         if (!taskStep)
             return stepCount;
 
-        // Cloth keeps its native step and is rate-limited by gating instead.
-        if (t_inClothManager || t_inClothProducer)
+        // In gate mode cloth keeps its native step and is rate-limited by
+        // gating instead, so it is excluded here. In delta mode it is treated
+        // like any other task and falls through to the substitution below.
+        if ((t_inClothManager || t_inClothProducer) &&
+            config::Get().clothMode == config::Settings::ClothMode::Gate)
             return stepCount;
 
         const float exactDelta = g_frameDeltaSeconds ? *g_frameDeltaSeconds : 0.0f;
@@ -141,6 +144,17 @@ namespace
                                             int32_t updateType)
     {
         g_producerCalls.fetch_add(1, std::memory_order_relaxed);
+
+        // Delta mode never skips: the solver runs every frame and the shared
+        // task timing hook feeds it the real frame delta.
+        if (config::Get().clothMode == config::Settings::ClothMode::Delta)
+        {
+            const bool previous = t_inClothProducer;
+            t_inClothProducer = true;
+            g_clothProducerUpdate.unsafe_call(producer, updateArgument, updateType);
+            t_inClothProducer = previous;
+            return;
+        }
 
         if (IsNativeTick())
         {
