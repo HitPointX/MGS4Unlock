@@ -68,6 +68,15 @@ namespace
         "45 33 F6 41 8B E8 48 8B D9";
     constexpr ptrdiff_t kClothSimulateGateOffset = 0xC4;    // call <hash gate>
     constexpr ptrdiff_t kClothPublishAndReturnOffset = 0x3C2; // mov rcx,rbx / call publish
+
+    // The epilogue restores rsi from this stack slot, but the instruction that
+    // *saves* rsi into it sits after our hook point, so on the redirected path
+    // the slot is never written. Restoring from it would hand the caller a
+    // garbage callee-saved register. Writing the live rsi there ourselves makes
+    // the restore a no-op instead. rsp is unchanged between the hook site and
+    // the epilogue (verified: no push/pop/rsp adjustment in that range), so the
+    // slot address computed here is the one the epilogue will read.
+    constexpr ptrdiff_t kClothSavedRsiSlot = 0x138;
     constexpr uint8_t kClothSimulateGateOpcode = 0xE8; // call rel32
 
     SafetyHookMid g_clothSimulateGate{};
@@ -112,6 +121,11 @@ namespace
             return;
 
         g_clothSkipped.fetch_add(1, std::memory_order_relaxed);
+
+        // See kClothSavedRsiSlot: the epilogue we are jumping into restores rsi
+        // from a slot that only the skipped code path writes.
+        *reinterpret_cast<uint64_t*>(ctx.rsp + kClothSavedRsiSlot) = ctx.rsi;
+
         ctx.rip = g_clothPublishAndReturnTarget;
     }
 

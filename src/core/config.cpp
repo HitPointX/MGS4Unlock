@@ -33,10 +33,7 @@ GateCutscenes = true
 
 ; Gates the cloth solver to the engine's native 60 Hz tick. Without this,
 ; Snake's coat and kilt sway at double speed above 60 fps.
-;
-; Off by default: this has reproduced a crash. Set to true only to help debug
-; it, not for regular play.
-GateCloth = false
+GateCloth = true
 
 ; Writes the decrypted .text/.rdata/.data to dump/ after the DRM stub runs.
 ; Only needed when developing new signatures; costs ~30 MB per launch.
