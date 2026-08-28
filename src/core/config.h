@@ -28,6 +28,10 @@ namespace config
         // Gates the cloth solver to the engine's native 60 Hz tick.
         bool gateCloth = true;
 
+        // Observation-only hooks on the remaining cloth solvers, reporting
+        // which instances each one handles. Costs nothing but a counter.
+        bool clothDiagnostics = true;
+
         // Writes the decrypted sections to disk once the DRM stub has run, for
         // offline analysis. Off by default: it costs ~30 MB per launch.
         bool dumpSections = false;

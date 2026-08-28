@@ -3,6 +3,8 @@
 #include <array>
 #include <atomic>
 #include <cstring>
+#include <iterator>
+#include <string>
 #include <cstdint>
 
 #include <safetyhook.hpp>
@@ -77,6 +79,20 @@ namespace
     // the epilogue (verified: no push/pop/rsp adjustment in that range), so the
     // slot address computed here is the one the epilogue will read.
     constexpr ptrdiff_t kClothSavedRsiSlot = 0x138;
+
+    // Early in the function, before the simulate gate, a bit is toggled at
+    // producer+0x14. That field is not a plain frame counter: it is read as a
+    // 16-bit value, passed into the solver, and written back afterwards, so it
+    // is simulation state that only a real simulation pass consumes and
+    // advances. Letting the toggle stand on a frame we skip advances it with
+    // nothing to consume it, which desynchronises the state the renderer draws
+    // from and shows up as a doubled, semi-transparent overlay. Toggling it
+    // back leaves the field exactly as the last simulated frame left it.
+    //
+    // rbx holds the producer pointer here and is never reassigned between the
+    // toggle and the hook site (verified by disassembling that range).
+    constexpr ptrdiff_t kClothSimStateOffset = 0x14;
+    constexpr uint32_t kClothSimStateToggleBit = 1;
     constexpr uint8_t kClothSimulateGateOpcode = 0xE8; // call rel32
 
     SafetyHookMid g_clothSimulateGate{};
@@ -122,6 +138,11 @@ namespace
 
         g_clothSkipped.fetch_add(1, std::memory_order_relaxed);
 
+        // See kClothSimStateOffset: undo the toggle that ran before this point,
+        // since the simulation pass that would have consumed it is being skipped.
+        if (ctx.rbx != 0)
+            *reinterpret_cast<uint32_t*>(ctx.rbx + kClothSimStateOffset) ^= kClothSimStateToggleBit;
+
         // See kClothSavedRsiSlot: the epilogue we are jumping into restores rsi
         // from a slot that only the skipped code path writes.
         *reinterpret_cast<uint64_t*>(ctx.rsp + kClothSavedRsiSlot) = ctx.rsi;
@@ -137,6 +158,66 @@ namespace
             g_polygonDemoUpdate.unsafe_call(demo);
         else
             g_demoSkipped.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // Observation only. MGS4 runs several independent cloth solvers and which
+    // one drives a given garment is not obvious from looking at it, so rather
+    // than guess, these hooks call the original unconditionally and just report
+    // what they are handling. Each solver identifies its instances by a size
+    // field, so logging the distinct values seen tells us how many instances are
+    // live and lets a specific garment be matched to a specific solver.
+    //
+    // Nothing here changes behaviour. Once we know which solver owns the robe
+    // and which owns the headdress, the actual fix can target the right one.
+    constexpr ptrdiff_t kJacketPointCountOffset = 0x00;
+    constexpr ptrdiff_t kHairChainCountOffset = 0x260;
+
+    SafetyHookInline g_directJacketUpdate{};
+    SafetyHookInline g_hairSimulationUpdate{};
+
+    std::atomic<uint64_t> g_jacketCalls{0};
+    std::atomic<uint64_t> g_hairCalls{0};
+    std::atomic<uint32_t> g_seenJacketPoints[8]{};
+    std::atomic<uint32_t> g_seenHairChains[8]{};
+
+    // Records a value if it has not been seen before. Small fixed table: we only
+    // care about the handful of distinct instance sizes in play.
+    void RecordDistinct(std::atomic<uint32_t>* table, size_t count, uint32_t value)
+    {
+        if (value == 0)
+            return;
+
+        for (size_t i = 0; i < count; ++i)
+        {
+            uint32_t existing = table[i].load(std::memory_order_relaxed);
+            if (existing == value)
+                return;
+            if (existing == 0 &&
+                table[i].compare_exchange_strong(existing, value, std::memory_order_relaxed))
+                return;
+        }
+    }
+
+    void __fastcall DirectJacketUpdateHook(uint8_t* jacket, uint8_t* context)
+    {
+        g_jacketCalls.fetch_add(1, std::memory_order_relaxed);
+        if (jacket)
+        {
+            RecordDistinct(g_seenJacketPoints, std::size(g_seenJacketPoints),
+                           *reinterpret_cast<uint16_t*>(jacket + kJacketPointCountOffset));
+        }
+        g_directJacketUpdate.unsafe_call(jacket, context);
+    }
+
+    void __fastcall HairSimulationUpdateHook(uint8_t* hair)
+    {
+        g_hairCalls.fetch_add(1, std::memory_order_relaxed);
+        if (hair)
+        {
+            RecordDistinct(g_seenHairChains, std::size(g_seenHairChains),
+                           *reinterpret_cast<uint32_t*>(hair + kHairChainCountOffset));
+        }
+        g_hairSimulationUpdate.unsafe_call(hair);
     }
 } // namespace
 
@@ -225,15 +306,73 @@ bool mgs4::InstallClothTimingFix()
     return true;
 }
 
+bool mgs4::InstallClothDiagnostics()
+{
+    const module_info::Section& text = module_info::Text();
+
+    constexpr const char* kDirectJacketSignature =
+        "48 8B C4 55 53 48 8D A8 78 FE FF FF 48 81 EC 78 02 00 00 4C 8B 89 58 04 00 00 "
+        "48 8B D9";
+    constexpr const char* kHairSimulationSignature =
+        "40 53 48 81 EC D0 00 00 00 48 8B D9 E8 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B 81 "
+        "48 02 00 00 48 85 C0";
+
+    bool ok = true;
+
+    if (memory::CountMatches(text, kDirectJacketSignature) == 1)
+    {
+        uint8_t* jacket = memory::Scan(text, kDirectJacketSignature);
+        logging::Address("directJacketUpdate", reinterpret_cast<uintptr_t>(jacket));
+        g_directJacketUpdate =
+            safetyhook::create_inline(jacket, reinterpret_cast<void*>(&DirectJacketUpdateHook));
+        if (!g_directJacketUpdate)
+        {
+            logging::Error("timing: failed to hook the direct-jacket update");
+            ok = false;
+        }
+    }
+    else
+    {
+        logging::Error("timing: the direct-jacket signature was not unique");
+        ok = false;
+    }
+
+    if (memory::CountMatches(text, kHairSimulationSignature) == 1)
+    {
+        uint8_t* hair = memory::Scan(text, kHairSimulationSignature);
+        logging::Address("hairSimulationUpdate", reinterpret_cast<uintptr_t>(hair));
+        g_hairSimulationUpdate =
+            safetyhook::create_inline(hair, reinterpret_cast<void*>(&HairSimulationUpdateHook));
+        if (!g_hairSimulationUpdate)
+        {
+            logging::Error("timing: failed to hook the hair simulation update");
+            ok = false;
+        }
+    }
+    else
+    {
+        logging::Error("timing: the hair-simulation signature was not unique");
+        ok = false;
+    }
+
+    if (ok)
+        logging::Info("timing: cloth diagnostics installed (observation only)");
+    return ok;
+}
+
 void mgs4::LogTimingCounters()
 {
+    // Each counter reports independently. An earlier version returned early when
+    // the cutscene count was zero, which silently suppressed every other line
+    // during normal gameplay.
     const uint64_t calls = g_demoCalls.load(std::memory_order_relaxed);
     const uint64_t skipped = g_demoSkipped.load(std::memory_order_relaxed);
-    if (calls == 0)
-        return;
-
-    logging::Info("timing: cutscene update called {} times, {} gated out ({:.1f}%)", calls, skipped,
-                  100.0 * static_cast<double>(skipped) / static_cast<double>(calls));
+    if (calls != 0)
+    {
+        logging::Info("timing: cutscene update called {} times, {} gated out ({:.1f}%)", calls,
+                      skipped,
+                      100.0 * static_cast<double>(skipped) / static_cast<double>(calls));
+    }
 
     const uint64_t clothCalls = g_clothCalls.load(std::memory_order_relaxed);
     const uint64_t clothSkipped = g_clothSkipped.load(std::memory_order_relaxed);
@@ -242,5 +381,33 @@ void mgs4::LogTimingCounters()
         logging::Info("timing: cloth update called {} times, {} gated out ({:.1f}%)", clothCalls,
                       clothSkipped,
                       100.0 * static_cast<double>(clothSkipped) / static_cast<double>(clothCalls));
+    }
+
+    const auto formatSeen = [](std::atomic<uint32_t>* table, size_t count) {
+        std::string out;
+        for (size_t i = 0; i < count; ++i)
+        {
+            const uint32_t value = table[i].load(std::memory_order_relaxed);
+            if (value == 0)
+                break;
+            if (!out.empty())
+                out += ", ";
+            out += std::to_string(value);
+        }
+        return out.empty() ? std::string("none") : out;
+    };
+
+    const uint64_t jacketCalls = g_jacketCalls.load(std::memory_order_relaxed);
+    if (jacketCalls != 0)
+    {
+        logging::Info("timing: direct-jacket called {} times, instance sizes seen: {}", jacketCalls,
+                      formatSeen(g_seenJacketPoints, std::size(g_seenJacketPoints)));
+    }
+
+    const uint64_t hairCalls = g_hairCalls.load(std::memory_order_relaxed);
+    if (hairCalls != 0)
+    {
+        logging::Info("timing: hair simulation called {} times, chain counts seen: {}", hairCalls,
+                      formatSeen(g_seenHairChains, std::size(g_seenHairChains)));
     }
 }

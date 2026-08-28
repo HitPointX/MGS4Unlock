@@ -125,6 +125,9 @@ namespace
             logging::Info("timing: cloth gating disabled by config");
         }
 
+        if (settings.clothDiagnostics)
+            mgs4::InstallClothDiagnostics();
+
         // The target framerate can be reset by more than one code path -- the
         // clamp bypass above covers the config-apply route, but at least one
         // other path sets it directly. Reasserting frequently catches drift

@@ -35,6 +35,10 @@ GateCutscenes = true
 ; Snake's coat and kilt sway at double speed above 60 fps.
 GateCloth = true
 
+; Observation-only hooks on the remaining cloth solvers. Reports which garment
+; instances each one handles, to identify which solver drives what.
+ClothDiagnostics = true
+
 ; Writes the decrypted .text/.rdata/.data to dump/ after the DRM stub runs.
 ; Only needed when developing new signatures; costs ~30 MB per launch.
 DumpSections = false
@@ -173,6 +177,11 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.gateCloth))
                 logging::Warn("config: GateCloth is not a boolean: '{}'", value);
+        }
+        else if (key == "ClothDiagnostics")
+        {
+            if (!ParseBool(value, g_settings.clothDiagnostics))
+                logging::Warn("config: ClothDiagnostics is not a boolean: '{}'", value);
         }
         else if (key == "DumpSections")
         {

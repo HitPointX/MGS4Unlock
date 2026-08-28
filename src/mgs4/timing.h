@@ -13,6 +13,13 @@ namespace mgs4
     // Without this, Snake's coat and kilt sway at double speed above 60 fps.
     bool InstallClothTimingFix();
 
+    // Installs observation-only hooks on the other two cloth solvers (the
+    // direct-jacket and hair paths). These do not change behaviour: they call
+    // the original and report which instances each solver is handling, so a
+    // given garment can be matched to the solver that actually drives it
+    // instead of being guessed at.
+    bool InstallClothDiagnostics();
+
     // Reports how often the cutscene update ran versus was gated out. At 120 fps
     // roughly half of the calls should be gated; at 60 fps, none.
     void LogTimingCounters();
