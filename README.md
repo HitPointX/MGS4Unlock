@@ -314,6 +314,38 @@ and a signature that matches in the wrong place is caught by re-validating the
 instruction it points at. If an update breaks something, the log will say which
 lookup failed rather than the mod misbehaving quietly.
 
+## Maintainers wanted
+
+Once this reaches 1.0r I am looking for people to help keep it working.
+
+The thing that most needs ongoing attention is game updates. Everything the mod
+does to code is located by byte signature, so a patch that changes the
+executable's layout can invalidate them, and someone then has to find the new
+addresses and confirm nothing else moved. That work is not difficult but it does
+need doing promptly, and it does not scale well to one person.
+
+Useful things to help with, roughly in order of how much they matter:
+
+- Re-deriving signatures after a game update, and testing that each fix still
+  behaves. `tools/mksig.py` generates a signature from a decrypted dump and
+  verifies it is unique, so this is more mechanical than it sounds.
+- Testing on Windows. Development and testing so far have been on Linux under
+  Proton, and while the mod is a plain Windows DLL with nothing platform
+  specific in it, that is an assumption rather than a verified fact.
+- Testing on hardware and displays other than the one it was written on,
+  particularly at framerates between the four the picker offers.
+- Playthrough testing. Several problems in the timing work were only found by
+  someone noticing that something looked wrong in a specific place, which no
+  amount of reading disassembly would have surfaced.
+- The systems listed under [Known limits](#known-limits) that have never been
+  exercised, notably the OctoCamo jacket, whose solver reported no activity at
+  all during testing and may need the same treatment the hair solver did.
+
+`docs/00-findings.md` records what is established about the target and how each
+claim was verified, which is the fastest way in. Issues and pull requests are
+welcome; if you want to take on the update-tracking role specifically, open an
+issue and say so.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
