@@ -43,11 +43,12 @@ FixCharacterTiming = true
 ; at 120 and four times at 240.
 GateCloth = true
 
-; How cloth is kept at the right rate. "gate" runs the solver only on native
-; 60 Hz frames, keeping its original fixed step. "delta" simulates every frame
-; using the real frame time and never skips. Try "delta" if cloth shows a
-; doubled or ghosted overlay.
-ClothMode = gate
+; How cloth is kept at the right rate.
+;   delta - simulate every frame using the real frame time (default, correct)
+;   gate  - run the solver only on native 60 Hz frames
+; Gating produces a doubled, ghosted copy of the cloth here and is kept only for
+; comparison.
+ClothMode = delta
 
 ; On frames where the cloth solver is gated, re-publish the last simulated
 ; transform. Try flipping this to false if cloth shows a doubled or ghosted

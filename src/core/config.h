@@ -54,15 +54,17 @@ namespace config
         //           at the cost of feeding a stiff solver a step it was not
         //           tuned for.
         //
-        // Gate is the default. Delta exists because every artefact seen so far
-        // has been on a gated frame, and this removes gating entirely rather
-        // than changing what a gated frame does.
+        // Delta is the default, and is what actually works here. Gating cloth
+        // produced a doubled, semi-transparent copy of the garment through
+        // every variation of what a skipped frame did; simulating every frame
+        // with the real delta has none of that and looks correct at 120 and
+        // 240. Gate is kept only for comparison.
         enum class ClothMode
         {
             Gate,
             Delta,
         };
-        ClothMode clothMode = ClothMode::Gate;
+        ClothMode clothMode = ClothMode::Delta;
 
         // On frames where the cloth solver is gated, re-publish the transform
         // the last simulated frame produced. Intended to keep the renderer from

@@ -36,15 +36,19 @@
 // So the fix is a set rather than a single hook:
 //
 //   * The task timing function substitutes the exact frame delta for a task
-//     whose stock step would over-advance it, so ordinary simulation tasks
-//     advance by real time.
-//   * Cloth is deliberately excluded from that substitution and gated instead,
-//     keeping its native step. Cloth solvers are stiff and are tuned for a
-//     fixed step, so feeding them a shorter one changes how the cloth behaves
-//     rather than just how fast it moves.
-//   * Which of the two applies is decided by a per-thread flag set around the
-//     cloth entry points, because the timing function is shared and the cloth
-//     work runs on job threads.
+//     whose stock step would over-advance it, so simulation advances by real
+//     time rather than by a step sized for 60 Hz.
+//   * Cloth goes through that same substitution and is simulated every frame.
+//     The obvious alternative -- keep cloth's native fixed step and run the
+//     solver only on 60 Hz frames -- was tried first and at length. It fixes
+//     the rate, but every variation of it left a doubled, semi-transparent
+//     copy of the garment on screen, because a garment whose solver only runs
+//     on some frames ends up inconsistent with the parts of the pipeline that
+//     run on all of them. Simulating every frame has none of that. The stiff
+//     solver copes with the shorter step better than the mismatch.
+//   * A per-thread flag around the cloth entry points still marks cloth work,
+//     so the gated mode remains available for comparison. It is per-thread
+//     because the timing function is shared and cloth runs on job threads.
 //
 // The flags have to be per-thread, not global: this timing function is called
 // from the engine's job threads, so a global would let one thread's cloth work
