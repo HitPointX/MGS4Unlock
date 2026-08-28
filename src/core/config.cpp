@@ -23,6 +23,10 @@ PickerValues = 30, 60, 120
 ; Set to false to leave the picker untouched.
 PatchPicker = true
 
+; Gates cutscene playback to the engine's native 60 Hz tick. Without this,
+; cutscenes run at double speed above 60 fps.
+GateCutscenes = true
+
 ; Writes the decrypted .text/.rdata/.data to dump/ after the DRM stub runs.
 ; Only needed when developing new signatures; costs ~30 MB per launch.
 DumpSections = false
@@ -146,6 +150,11 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.patchPicker))
                 logging::Warn("config: PatchPicker is not a boolean: '{}'", value);
+        }
+        else if (key == "GateCutscenes")
+        {
+            if (!ParseBool(value, g_settings.gateCutscenes))
+                logging::Warn("config: GateCutscenes is not a boolean: '{}'", value);
         }
         else if (key == "DumpSections")
         {

@@ -9,6 +9,7 @@
 #include "core/pdata.h"
 #include "dumper/dumper.h"
 #include "mgs4/picker.h"
+#include "mgs4/timing.h"
 #include "proxy/proxy.h"
 
 namespace
@@ -81,7 +82,23 @@ namespace
         if (settings.dumpSections)
             dumper::DumpSections(dir / "dump");
 
-        return 0;
+        if (settings.gateCutscenes)
+        {
+            if (!mgs4::InstallCutsceneTimingFix())
+                logging::Error("timing: cutscenes will run fast above 60 fps");
+        }
+        else
+        {
+            logging::Info("timing: cutscene gating disabled by config");
+        }
+
+        // Periodic counters are the cheapest way to confirm from the log alone
+        // that a hook is firing on the frames we expect.
+        for (;;)
+        {
+            ::Sleep(30000);
+            mgs4::LogTimingCounters();
+        }
     }
 } // namespace
 

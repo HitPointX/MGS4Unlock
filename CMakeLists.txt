@@ -12,6 +12,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(PROXY_TARGET "dbghelp" CACHE STRING "System DLL to impersonate: dbghelp | winmm")
 set_property(CACHE PROXY_TARGET PROPERTY STRINGS dbghelp winmm)
 
+# safetyhook brings Zydis, which we also want for instruction-length work.
+# Pinned to a release tag; CPM fetches Zydis at configure time.
+set(SAFETYHOOK_FETCH_ZYDIS ON  CACHE BOOL "" FORCE)
+set(SAFETYHOOK_BUILD_TEST  OFF CACHE BOOL "" FORCE)
+set(SAFETYHOOK_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+add_subdirectory(external/safetyhook EXCLUDE_FROM_ALL)
+
 add_library(MGS4Unlock SHARED
     src/dllmain.cpp
     src/proxy/proxy.cpp
@@ -23,6 +30,7 @@ add_library(MGS4Unlock SHARED
     src/core/pdata.cpp
     src/dumper/dumper.cpp
     src/mgs4/picker.cpp
+    src/mgs4/timing.cpp
 )
 
 target_include_directories(MGS4Unlock PRIVATE src)
@@ -42,7 +50,7 @@ target_link_options(MGS4Unlock PRIVATE
     -Wl,--enable-stdcall-fixup
     -Wl,--exclude-all-symbols
 )
-target_link_libraries(MGS4Unlock PRIVATE shlwapi)
+target_link_libraries(MGS4Unlock PRIVATE shlwapi safetyhook)
 
 # The output must be named exactly like the DLL we impersonate.
 set_target_properties(MGS4Unlock PROPERTIES

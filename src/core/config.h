@@ -16,6 +16,10 @@ namespace config
         // Master switch for the picker patch.
         bool patchPicker = true;
 
+        // Gates cutscene playback to the engine's native 60 Hz tick. Without
+        // this, cutscenes play at double speed above 60 fps.
+        bool gateCutscenes = true;
+
         // Writes the decrypted sections to disk once the DRM stub has run, for
         // offline analysis. Off by default: it costs ~30 MB per launch.
         bool dumpSections = false;
