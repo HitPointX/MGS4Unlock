@@ -1,0 +1,8 @@
+build/
+backups/
+reference/
+external/
+*.dll
+*.asi
+*.o
+compile_commands.json

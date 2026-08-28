@@ -1,0 +1,11 @@
+LIBRARY dbghelp.dll
+EXPORTS
+    StackWalk64
+    SymFunctionTableAccess64
+    SymGetModuleInfo64
+    MiniDumpWriteDump
+    SymGetSymFromAddr64
+    SymInitialize
+    SymGetLineFromAddr64
+    SymCleanup
+    SymGetModuleBase64
