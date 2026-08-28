@@ -6,3 +6,4 @@ reference/
 *.o
 compile_commands.json
 work/
+dist/
