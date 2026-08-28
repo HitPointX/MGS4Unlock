@@ -26,7 +26,12 @@ namespace config
         bool gateCutscenes = true;
 
         // Gates the cloth solver to the engine's native 60 Hz tick.
-        bool gateCloth = true;
+        //
+        // Off by default: every gating variant tried so far produces a doubled,
+        // semi-transparent cloth, including one that skipped the solver and
+        // changed nothing else. The cause is not yet understood. Sped-up cloth
+        // sway is cosmetic, so stock behaviour is the better default until it is.
+        bool gateCloth = false;
 
         // Observation-only hooks on the remaining cloth solvers, reporting
         // which instances each one handles. Costs nothing but a counter.

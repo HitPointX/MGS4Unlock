@@ -33,7 +33,10 @@ GateCutscenes = true
 
 ; Gates the cloth solver to the engine's native 60 Hz tick. Without this,
 ; Snake's coat and kilt sway at double speed above 60 fps.
-GateCloth = true
+;
+; Off by default: gating currently causes a doubled, semi-transparent cloth.
+; Cause not yet understood. Set to true only when debugging that.
+GateCloth = false
 
 ; Observation-only hooks on the remaining cloth solvers. Reports which garment
 ; instances each one handles, to identify which solver drives what.

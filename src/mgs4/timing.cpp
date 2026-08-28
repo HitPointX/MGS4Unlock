@@ -7,6 +7,8 @@
 #include <string>
 #include <cstdint>
 
+#include <windows.h>
+
 #include <safetyhook.hpp>
 
 #include "core/config.h"
@@ -117,9 +119,38 @@ namespace
         return g_frameTickDelta60 == nullptr || *g_frameTickDelta60 != 0;
     }
 
+    // Records a value if it has not been seen before. Small fixed table: we only
+    // care about the handful of distinct instance sizes in play.
+    void RecordDistinct(std::atomic<uint32_t>* table, size_t count, uint32_t value)
+    {
+        if (value == 0)
+            return;
+
+        for (size_t i = 0; i < count; ++i)
+        {
+            uint32_t existing = table[i].load(std::memory_order_relaxed);
+            if (existing == value)
+                return;
+            if (existing == 0 &&
+                table[i].compare_exchange_strong(existing, value, std::memory_order_relaxed))
+                return;
+        }
+    }
+
+    // If the producer runs on more than one thread, the 60 Hz tick counter can
+    // change between two calls that belong to the same rendered frame. One cloth
+    // instance would then simulate while another does not, leaving two layers
+    // out of sync with each other on screen. That matches the reported "two
+    // overlapping layers" appearance better than anything to do with which exit
+    // the skipped path takes, so record the distinct threads involved.
+    std::atomic<uint32_t> g_seenClothThreads[8]{};
+
     void ClothSimulateGateHook(SafetyHookContext& ctx)
     {
         g_clothCalls.fetch_add(1, std::memory_order_relaxed);
+
+        if (config::Get().clothDiagnostics)
+            RecordDistinct(g_seenClothThreads, std::size(g_seenClothThreads), ::GetCurrentThreadId());
 
         if (IsNativeTick())
             return;
@@ -157,24 +188,6 @@ namespace
     std::atomic<uint64_t> g_hairCalls{0};
     std::atomic<uint32_t> g_seenJacketPoints[8]{};
     std::atomic<uint32_t> g_seenHairChains[8]{};
-
-    // Records a value if it has not been seen before. Small fixed table: we only
-    // care about the handful of distinct instance sizes in play.
-    void RecordDistinct(std::atomic<uint32_t>* table, size_t count, uint32_t value)
-    {
-        if (value == 0)
-            return;
-
-        for (size_t i = 0; i < count; ++i)
-        {
-            uint32_t existing = table[i].load(std::memory_order_relaxed);
-            if (existing == value)
-                return;
-            if (existing == 0 &&
-                table[i].compare_exchange_strong(existing, value, std::memory_order_relaxed))
-                return;
-        }
-    }
 
     void __fastcall DirectJacketUpdateHook(uint8_t* jacket, uint8_t* context)
     {
@@ -380,6 +393,9 @@ void mgs4::LogTimingCounters()
         logging::Info("timing: direct-jacket called {} times, instance sizes seen: {}", jacketCalls,
                       formatSeen(g_seenJacketPoints, std::size(g_seenJacketPoints)));
     }
+
+    logging::Info("timing: cloth producer threads seen: {}",
+                  formatSeen(g_seenClothThreads, std::size(g_seenClothThreads)));
 
     const uint64_t hairCalls = g_hairCalls.load(std::memory_order_relaxed);
     if (hairCalls != 0)
