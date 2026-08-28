@@ -1,6 +1,6 @@
-# MGS4 — verified findings
+# MGS4: verified findings
 
-Target: `METAL GEAR SOLID 4: Guns of the Patriots — Master Collection Version`, Steam AppID 2492670.
+Target: `METAL GEAR SOLID 4: Guns of the Patriots, Master Collection Version`, Steam AppID 2492670.
 Build `Pela_[MPA]_x64_BGFX_0.0.3_Release_ww_[Code]a84606af_[DataNew]d06ab525_2026_0825`,
 `mgs4.exe` md5 `48e656dae7fb7e85ec162d25aa7a311f`.
 
@@ -12,7 +12,7 @@ all runtime use goes through an RVA rebase.
 ## Binary layout
 
 Steam DRM wraps the executable. The entry point is `0x164184310`, inside a `.bind`
-section, and **`.text` on disk is ciphertext** — zero standard prologues, zero `int3`
+section, and **`.text` on disk is ciphertext**: zero standard prologues, zero `int3`
 padding, entropy 8.0000 bits/byte.
 
 **`.rdata`, `.data` and `.pdata` are not encrypted.** This is the single most useful
@@ -43,15 +43,15 @@ At `.data:0x141b08de8` (RVA `0x1b08de8`), found by unique byte signature:
 0x141b08e00   int32     128              max fps cap
 ```
 
-The reference implementation's `GetTargetFps` signature decodes against exactly these
-fields — its `mov eax,[rip+d]` / `cmp eax,-1` targets `0x141b08df4`, and its
-`cmp eax,0x80` targets `0x141b08e00`.
+The target-fps accessor reads and memoizes `0x141b08df4`, comparing it against the
+`-1` sentinel, and compares a computed rate against `0x141b08e00` (128). Those two
+operands are what identify the surrounding fields.
 
 **The menu has no numeric label strings.** The binary contains no `"30"`/`"40"`/`"60"`
 cluster, and `common/localization/lang/lang_en` supplies value labels for every
 *enumerated* option (Screen Mode, V-Sync, Quality, DirectX Version) and for none of
 the numeric ones. `"Max Frame Rate"` is localization id `0xCCD903`. The labels are
-therefore formatted from the integers above — **rewriting the array changes what the
+therefore formatted from the integers above. **Rewriting the array changes what the
 player sees**, which is confirmed in-game.
 
 The picker persists as a literal integer, not an index, to
@@ -88,7 +88,7 @@ Recovered contents of note:
   `[fastLoad] stage`
 - `mgs4.steam.ecf` → `[steam] appID = 2492670`
 
-Config load order, from `.rdata:0x141660d90` — note the user override is checked first:
+Config load order, from `.rdata:0x141660d90`. Note the user override is checked first:
 
 ```
 config\mgs4.user.ini
@@ -116,15 +116,15 @@ That makes it the best proxy anchor: statically imported so we load before the S
 stub runs, and a small blast radius if forwarding ever fails. `winmm` (2 imports) is
 smaller but sits in front of Wine's audio path and is also imported by `bink2w64.dll`.
 
-Nothing in the import graph pulls in `winhttp` or `wininet`, which is why the
-reference mod's Ultimate ASI Loader packaging may never load under Proton at all.
+Nothing in the import graph pulls in `winhttp` or `wininet`, so a proxy built on
+either of those names would never be loaded under Proton.
 
 Confirmed working: `WINEDLLOVERRIDES="dbghelp=n,b"`, 9/9 exports forwarded to
 `C:\windows\system32\dbghelp.dll`.
 
 ## Detecting the DRM unpack
 
-Sampling `.text` for `int3` padding does **not** work — even on fully decrypted code
+Sampling `.text` for `int3` padding does **not** work. Even on fully decrypted code
 a strided 4-byte `0xCC` probe scores 0.0000.
 
 What does work is anchoring on `.pdata`: sample known function starts and ask whether
@@ -143,7 +143,7 @@ another function's body.
 
 Desktop (ASRock B850M-X, Ryzen 9 9950X), SteamOS 3.8.25 holo, read-only root.
 Game runs under GE-Proton11-5. Primary display DP-3 at 3840x2160 **@ 239.89 Hz**,
-secondary HDMI-A-1 @ 59.96 Hz — so both 120 and 240 are observable here.
+secondary HDMI-A-1 @ 59.96 Hz, so both 120 and 240 are observable here.
 
 Toolchain lives in an Arch distrobox (`mgs4dev`): mingw-w64 g++ 16.2.0, cmake, ninja.
 
@@ -151,6 +151,6 @@ Toolchain lives in an Arch distrobox (`mgs4dev`): mingw-w64 g++ 16.2.0, cmake, n
 
 - Picker offers 30 / 60 / 120, selectable and persisted. **Confirmed in-game.**
 - Selecting 120 renders at 120 fps. **Confirmed in-game.**
-- Timing correctness at 120 is not yet addressed — see `docs/04-timing.md`.
+- Cutscene timing is gated to the native 60 Hz tick as of 0.6a.
 - 240 fps is blocked on `maxCap = 128` at `0x141b08e00`, and on the engine's 300 Hz
   character tick (240 gives 1.25 ticks/frame; above 300 fps the model collapses).

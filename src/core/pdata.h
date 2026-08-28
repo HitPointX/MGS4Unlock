@@ -8,7 +8,7 @@
 // holds ~90k RUNTIME_FUNCTION records giving the exact start of every function
 // in .text. Only .text and the Steam stub's .bind are encrypted.
 //
-// That gives us two things the reference implementation had no access to:
+// That gives us two things:
 //
 //   1. A trustworthy unpack detector. We know precisely where functions begin,
 //      so we can ask whether those addresses currently hold plausible x86-64

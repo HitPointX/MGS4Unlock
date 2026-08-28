@@ -55,14 +55,10 @@ namespace
         return entries[kEntryCount] == kTerminator;
     }
 
-    // The option array is the head of a small framerate-control struct. Decoding
-    // the reference implementation's GetTargetFps signature against this build
-    // shows its two RIP operands landing on the fields below:
-    //
-    //     mov eax, [rip+d]   ->  entries[3], the -1 sentinel   (cached target)
-    //     cmp eax, -1
-    //     call ...
-    //     cmp eax, 0x80      ->  entries[6], the 128           (max fps cap)
+    // The option array is the head of a small framerate-control struct. The
+    // engine's target-fps accessor reads entries[3] and compares it against a
+    // -1 sentinel to decide whether the rate has been resolved yet, then bounds
+    // the computed rate against entries[6], which holds 128.
     //
     // Dumping the whole struct on every run is what tells us, from the log
     // alone, whether the game re-populates the options from config after we
