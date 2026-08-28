@@ -6,7 +6,7 @@ The game ships with a "Max Frame Rate" setting offering 30, 40 and 60. This mod
 replaces that list with 30, 60, 120 and 240, makes the choice stick, and
 corrects the engine systems that do not scale correctly above 60.
 
-Current version: **0.7b** (beta)
+Current version: **0.7c** (beta)
 
 ## Status
 
@@ -21,6 +21,7 @@ Current version: **0.7b** (beta)
 | Character movement and animation speed | Corrected, verified at 240 |
 | Cutscene playback | Corrected, verified in game |
 | Cloth, including the headdress and scarf | Corrected, verified at 120 and 240 |
+| Snake's bandana | Corrected, verified at 120 and 240 |
 | Stability | Not characterised, see [Known limits](#known-limits) |
 
 This is beta software. It writes to another process's memory and installs code
@@ -155,6 +156,11 @@ a step size and a substep count, and every simulation task consults it. It now
 receives the real frame delta rather than a step sized for 60 Hz.
 
 **Cloth** is simulated every frame using that same real delta.
+
+**Snake's bandana** runs through a separate hair solver that is stiff and
+integrates gravity per step. Given a shorter step, gravity scales down while the
+chain constraints keep their stiffness, so the chain never settles and the
+bandana floats above his head. It gets a fixed step near 1/60 instead.
 
 That last one is worth explaining, because the intuitive approach is wrong.
 Gating cloth to 60 Hz, the way cutscenes are gated, does fix the sway rate, but

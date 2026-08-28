@@ -8,6 +8,38 @@ All work targets game build `[Code]a84606af` (2026-08-25),
 
 ---
 
+## 0.7c, hair solver
+
+- Fixed Snake's bandana floating above his head instead of draping, at any
+  framerate above 60. Visible for most of the game.
+
+  The bandana runs through a hair solver, separate from the cloth solver, and it
+  was receiving the real frame delta along with every other simulation task.
+  That solver integrates gravity per step while its chain constraints keep their
+  stiffness regardless, so a shorter step scales gravity down and the chain never
+  settles. It now gets a fixed step near 1/60 whatever the framerate, and a
+  single step so the engine does not compensate by running several. Switchable
+  via `HairFixedStep`.
+
+  Measured afterwards at 240: the engine already calls the hair solver at around
+  76 times a second rather than once per frame, so the fixed step gives the right
+  speed without also needing to be rate-limited.
+
+- Removed the remains of an abandoned approach to cloth timing, and a duplicate
+  hook on the hair solver left over from when it was only being observed.
+
+This completes the timing work. Three systems needed three different treatments,
+which is worth recording because a single approach applied to all of them does
+not work:
+
+| System | Treatment | Reason |
+|---|---|---|
+| Cutscenes | Gate to native 60 Hz | Owns its own timeline end to end |
+| Cloth | Simulate every frame on the real delta | One stage of a per-frame pipeline |
+| Hair | Fixed step near 1/60, every call | Stiff solver, unstable on a short step |
+
+---
+
 ## 0.7b, cloth and simulation timing
 
 First beta. Everything the mod sets out to correct is now correct at both 120
