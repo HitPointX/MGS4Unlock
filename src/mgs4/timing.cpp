@@ -41,62 +41,50 @@ namespace
     // wall-clock time and the sway visibly speeds up.
     //
     // The producer update is not just a solver call. Its first ~0xC4 bytes drain
-    // two internal command queues and unconditionally flip a bit at producer+0x14
-    // that looks like a double-buffer selector -- it runs on every call the
-    // manager makes, which is every frame, regardless of whether anything
-    // actually needs to simulate. Skipping the whole function on non-native
-    // frames (as an early attempt here did) skips that bookkeeping too, and the
-    // renderer ends up reading mismatched buffer state, which showed as a
-    // doubled, ghosted image rather than the judder that gating usually causes.
+    // two internal command queues and flip a bit at producer+0x14, and the
+    // manager calls it every frame regardless of whether anything needs to
+    // simulate. Hooking the entry and skipping the whole function therefore
+    // skips that bookkeeping too, so instead a mid-hook sits at the start of the
+    // simulate-or-not decision: the bookkeeping before it always runs, and only
+    // the simulation body is skipped.
     //
-    // The function's own internal logic already separates the two concerns: past
-    // the bookkeeping, it runs a couple of hash-gated checks and, when they say
-    // there is nothing to simulate, jumps straight to a call into the transform
-    // publish function and then a shared epilogue. That is the exact behaviour
-    // we want on a non-native frame, and it is a path the stock code already
-    // takes under some conditions, not a control-flow shape invented here.
+    // The redirect target deliberately matches where the engine's own internal
+    // "nothing to simulate" exits go. See kClothSkipToEpilogueOffset -- getting
+    // that target wrong is what produced the doubled cloth in earlier attempts.
     //
-    // So rather than hook the function's entry, a mid-hook sits at the start of
-    // the simulate-or-not decision (right before the first hash-gate call) and,
-    // on a non-native frame, redirects straight to that existing publish-then-
-    // return path. The bookkeeping before this point always runs; only the
-    // simulation body in between is skipped. The block between the two
-    // addresses was checked with a full disassembly (not a raw byte scan) and
-    // contains no push/pop/stack-pointer adjustment, so the redirect lands with
-    // the same stack frame and the same live registers (producer pointer in
-    // rbx, a zero constant in r14) that the target expects.
+    // The skipped range was checked with a full disassembly (not a raw byte
+    // scan) and contains no push/pop/stack-pointer adjustment, so the redirect
+    // lands with the stack frame the epilogue expects.
     constexpr const char* kClothProducerUpdateSignature =
         "48 89 5C 24 18 55 57 41 56 48 81 EC 10 01 00 00 48 8B B9 70 03 00 00 "
         "45 33 F6 41 8B E8 48 8B D9";
-    constexpr ptrdiff_t kClothSimulateGateOffset = 0xC4;    // call <hash gate>
-    constexpr ptrdiff_t kClothPublishAndReturnOffset = 0x3C2; // mov rcx,rbx / call publish
+    constexpr ptrdiff_t kClothSimulateGateOffset = 0xC4; // call <hash gate>
 
-    // The epilogue restores rsi from this stack slot, but the instruction that
-    // *saves* rsi into it sits after our hook point, so on the redirected path
-    // the slot is never written. Restoring from it would hand the caller a
-    // garbage callee-saved register. Writing the live rsi there ourselves makes
-    // the restore a no-op instead. rsp is unchanged between the hook site and
-    // the epilogue (verified: no push/pop/rsp adjustment in that range), so the
-    // slot address computed here is the one the epilogue will read.
-    constexpr ptrdiff_t kClothSavedRsiSlot = 0x138;
-
-    // Early in the function, before the simulate gate, a bit is toggled at
-    // producer+0x14. That field is not a plain frame counter: it is read as a
-    // 16-bit value, passed into the solver, and written back afterwards, so it
-    // is simulation state that only a real simulation pass consumes and
-    // advances. Letting the toggle stand on a frame we skip advances it with
-    // nothing to consume it, which desynchronises the state the renderer draws
-    // from and shows up as a doubled, semi-transparent overlay. Toggling it
-    // back leaves the field exactly as the last simulated frame left it.
+    // Where to land on a frame we skip. This is the function's own epilogue, and
+    // critically it is the exact target of both of the engine's internal
+    // "nothing to simulate" exits (a je and a jbe earlier in the function). It
+    // sits *after* the transform-publish call, so those exits deliberately do
+    // not publish.
     //
-    // rbx holds the producer pointer here and is never reassigned between the
-    // toggle and the hook site (verified by disassembling that range).
-    constexpr ptrdiff_t kClothSimStateOffset = 0x14;
-    constexpr uint32_t kClothSimStateToggleBit = 1;
+    // An earlier attempt redirected a few bytes earlier, to the publish call
+    // itself, on the assumption that skipping publish would leave the renderer
+    // with a stale transform. That was wrong, and it was the cause of the
+    // doubled, semi-transparent cloth: re-publishing on every skipped frame
+    // alternated what the renderer drew between two states. Matching the
+    // engine's own behaviour -- simulate nothing, publish nothing, just return
+    // -- leaves the last published transform standing untouched.
+    //
+    // Landing here also sidesteps a hazard at the publish target: the epilogue
+    // restores rsi from a stack slot that only the skipped code writes, so
+    // entering above that instruction would have restored a garbage
+    // callee-saved register. This entry point is past it, and rbx (the only
+    // other restored register) is saved at function entry on every path.
+    constexpr ptrdiff_t kClothSkipToEpilogueOffset = 0x3D2;
+
     constexpr uint8_t kClothSimulateGateOpcode = 0xE8; // call rel32
 
     SafetyHookMid g_clothSimulateGate{};
-    uintptr_t g_clothPublishAndReturnTarget = 0;
+    uintptr_t g_clothSkipTarget = 0;
 
     std::atomic<uint64_t> g_clothCalls{0};
     std::atomic<uint64_t> g_clothSkipped{0};
@@ -137,17 +125,7 @@ namespace
             return;
 
         g_clothSkipped.fetch_add(1, std::memory_order_relaxed);
-
-        // See kClothSimStateOffset: undo the toggle that ran before this point,
-        // since the simulation pass that would have consumed it is being skipped.
-        if (ctx.rbx != 0)
-            *reinterpret_cast<uint32_t*>(ctx.rbx + kClothSimStateOffset) ^= kClothSimStateToggleBit;
-
-        // See kClothSavedRsiSlot: the epilogue we are jumping into restores rsi
-        // from a slot that only the skipped code path writes.
-        *reinterpret_cast<uint64_t*>(ctx.rsp + kClothSavedRsiSlot) = ctx.rsi;
-
-        ctx.rip = g_clothPublishAndReturnTarget;
+        ctx.rip = g_clothSkipTarget;
     }
 
     void PolygonDemoUpdateHook(uint8_t* demo)
@@ -289,16 +267,15 @@ bool mgs4::InstallClothTimingFix()
         return false;
     }
 
-    g_clothPublishAndReturnTarget =
-        reinterpret_cast<uintptr_t>(update) + kClothPublishAndReturnOffset;
+    g_clothSkipTarget = reinterpret_cast<uintptr_t>(update) + kClothSkipToEpilogueOffset;
     logging::Address("clothSimulateGate", reinterpret_cast<uintptr_t>(gate));
-    logging::Address("clothPublishAndReturn", g_clothPublishAndReturnTarget);
+    logging::Address("clothSkipTarget", g_clothSkipTarget);
 
     g_clothSimulateGate = safetyhook::create_mid(gate, &ClothSimulateGateHook);
     if (!g_clothSimulateGate)
     {
         logging::Error("timing: failed to hook the cloth simulate gate");
-        g_clothPublishAndReturnTarget = 0;
+        g_clothSkipTarget = 0;
         return false;
     }
 
