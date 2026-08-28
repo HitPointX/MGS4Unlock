@@ -22,7 +22,7 @@ Current version: **0.7c** (beta)
 | Cutscene playback | Corrected, verified in game |
 | Cloth, including the headdress and scarf | Corrected, verified at 120 and 240 |
 | Snake's bandana | Corrected, verified at 120 and 240 |
-| Stability | Not characterised, see [Known limits](#known-limits) |
+| Stability | No crash seen in normal gameplay, testing ongoing |
 
 This is beta software. It writes to another process's memory and installs code
 hooks. Do not use it in any online mode.
@@ -288,14 +288,20 @@ in the way of 240.
 engine offers no interpolation between cutscene states, so this is inherent to
 gating that system.
 
-**Stability is not characterised.** Crashes have been seen in several distinct
-signatures during development. One was root-caused and fixed: a mid-function
-redirect that left a callee-saved register holding a stale value, which
-surfaced as a fault over a megabyte away in unrelated code. At least one other
-signature recurred before any timing work existed, so it is unlikely to
-originate here, but it is not understood. If you hit a crash, the game writes
-a dump under `MGS4/crash_dumps/`, and launching with `PROTON_LOG=1` on Linux
-captures more detail.
+**Stability has had limited testing.** No crash has been seen in normal
+gameplay so far, across most of Act 1 and Act 2 at 120 and 240.
+
+One real crash was found and fixed during development: a mid-function redirect
+left a callee-saved register holding a stale value, which surfaced as a fault
+over a megabyte away in unrelated code, because the bad value propagated
+outward until something used it as a pointer.
+
+Most of the other crash dumps produced during development came from replacing
+the DLL while the game was still running, which is a development habit rather
+than a fault in the mod. If you are iterating on a build, close the game first.
+
+If you do hit a crash, the game writes a dump under `MGS4/crash_dumps/`, and
+launching with `PROTON_LOG=1` on Linux captures more detail.
 
 ## Game updates
 

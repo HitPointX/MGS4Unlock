@@ -28,6 +28,10 @@ All work targets game build `[Code]a84606af` (2026-08-25),
 - Removed the remains of an abandoned approach to cloth timing, and a duplicate
   hook on the hair solver left over from when it was only being observed.
 
+Note on the crash dumps produced during development: most were caused by
+replacing the DLL while the game was still running, not by the mod. One was a
+genuine bug and is fixed, in 0.7b. No crash has been seen in normal gameplay.
+
 This completes the timing work. Three systems needed three different treatments,
 which is worth recording because a single approach applied to all of them does
 not work:
