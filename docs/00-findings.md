@@ -179,18 +179,61 @@ secondary HDMI-A-1 @ 59.96 Hz, so both 120 and 240 are observable here.
 
 Toolchain lives in an Arch distrobox (`mgs4dev`): mingw-w64 g++ 16.2.0, cmake, ninja.
 
+## Timing above 60 fps
+
+Most of the game scales on its own: gameplay, audio and general animation are
+driven from a real frame delta and behave correctly at 120 and 240 untouched.
+Four systems do not, each for a different reason.
+
+**Character control** advances in whole ticks of a 300 Hz counter. 300 divides
+evenly by 60, so the shipping framerate loses nothing, but 120 gives 2.5 ticks
+per frame and 240 gives 1.25, and the fraction is discarded. Animation runs
+slow: subtle at 120, roughly four fifths speed at 240. Carrying the remainder
+between frames fixes it. This also sets the ceiling for the whole approach:
+above 300 fps a frame is worth less than one tick and the model collapses.
+
+**Cutscene playback** advances a whole 60 Hz tick per call, so it plays at
+double speed and stalls to resynchronise against audio. Gating it to native
+ticks is correct here.
+
+**Simulation task timing** is centralised in one function that converts the
+frame delta into a step size and substep count (it multiplies by 59.94 to
+express the frame in 60 Hz ticks). Every simulation task consults it. Feeding it
+the real frame delta, rather than a step sized for 60 Hz, is what fixes the
+scarf and general simulation.
+
+**Cloth** must be simulated every frame using that same real delta. The
+intuitive fix -- keep cloth's native fixed step and run the solver only on
+60 Hz frames -- was tried extensively and always produced a doubled,
+semi-transparent copy of the garment, regardless of what the skipped frame did
+(publish, don't publish, which exit to take, what state to restore). A garment
+whose solver runs on only some frames ends up inconsistent with the parts of
+the pipeline that run on all of them. The stiff solver tolerates a shorter step
+better than it tolerates that mismatch.
+
+The general lesson: gating is the right tool for a system that owns its own
+timeline end to end (cutscenes), and the wrong tool for one that is part of a
+per-frame pipeline (cloth).
+
 ## Status
 
 - Picker offers 30 / 60 / 120, selectable and persisted. **Confirmed in-game.**
 - Selecting 120 renders at 120 fps. **Confirmed in-game.**
 - Cutscene timing is gated to the native 60 Hz tick as of 0.6a.
+- The picker offers 30 / 60 / 120 / 240. The stock count of three came from a
+  six-byte helper returning 3 and an unrolled filler; the menu's own buffer is
+  sized for 30 entries, so raising it is a count patch plus a filler hook.
 - The saved choice is restored at startup by seeding the cached target, so a rate
-  above the stock list now survives a relaunch.
-- 240 fps has no known cap standing in its way. The earlier reading of `128` as a
-  maximum was wrong. The remaining constraint is the engine's 300 Hz character
-  tick: 240 gives 1.25 ticks per frame, which is workable, while above 300 fps the
-  count drops below one tick per frame and the model breaks down.
-- A fourth picker entry is feasible: patch the immediate in `0x140140a50` from 3 to
-  4 and hook `0x140140c70` to fill four entries. Both have exactly one caller, and
-  the destination buffer at `+0x388` has room to spare before the next field at
-  `+0x400`.
+  above the stock list now survives a relaunch. A separate clamp in the
+  config-apply path snaps anything above 60 back down and has to be bypassed,
+  and at least one other code path writes the target directly, so it is also
+  reasserted on a timer.
+- Cloth, cutscenes, character animation and the scarf are all correct at 120 and
+  240. Confirmed in game.
+- 240 fps works. The earlier reading of `128` as a maximum was wrong; it is a
+  platform identifier. The real ceiling is the 300 Hz character tick, so 300 fps
+  is the hard limit for this approach.
+- Crashes have been observed in several distinct signatures, one of which
+  recurred before any timing work existed. Only one has been root-caused (a
+  callee-saved register clobbered by a mid-hook redirect). Stability is not yet
+  characterised.
