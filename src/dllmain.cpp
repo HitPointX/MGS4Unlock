@@ -9,6 +9,7 @@
 #include "core/module.h"
 #include "core/pdata.h"
 #include "dumper/dumper.h"
+#include "mgs4/cloth.h"
 #include "mgs4/picker.h"
 #include "mgs4/savedsettings.h"
 #include "mgs4/timing.h"
@@ -123,14 +124,16 @@ namespace
             logging::Info("timing: cutscene gating disabled by config");
         }
 
+        // Cloth timing depends on the frame timing globals the cutscene fix
+        // resolves, so it has to come after it.
         if (settings.gateCloth)
         {
-            if (!mgs4::InstallClothTimingFix())
-                logging::Error("timing: cloth will sway fast above 60 fps");
+            if (!mgs4::InstallClothTiming(mgs4::FrameTimingStruct(), mgs4::FrameTickDelta60()))
+                logging::Error("cloth: cloth will sway fast above 60 fps");
         }
         else
         {
-            logging::Info("timing: cloth gating disabled by config");
+            logging::Info("cloth: cloth timing disabled by config");
         }
 
         if (settings.clothDiagnostics)
@@ -171,6 +174,7 @@ namespace
             if (tick % 30 == 0)
             {
                 mgs4::LogTimingCounters();
+                mgs4::LogClothCounters();
                 if (settings.patchPicker)
                     mgs4::ReassertFrameratePicker();
             }

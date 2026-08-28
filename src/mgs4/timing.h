@@ -7,12 +7,6 @@ namespace mgs4
     // the selected framerate. Requires .text to be decrypted first.
     bool InstallCutsceneTimingFix();
 
-    // Gates cloth simulation to the engine's native 60 Hz tick, without
-    // disturbing the per-frame bookkeeping (a double-buffer flip among it) that
-    // the same function performs on every call regardless of simulation rate.
-    // Without this, Snake's coat and kilt sway at double speed above 60 fps.
-    bool InstallClothTimingFix();
-
     // Installs observation-only hooks on the other two cloth solvers (the
     // direct-jacket and hair paths). These do not change behaviour: they call
     // the original and report which instances each solver is handling, so a
@@ -23,4 +17,10 @@ namespace mgs4
     // Reports how often the cutscene update ran versus was gated out. At 120 fps
     // roughly half of the calls should be gated; at 60 fps, none.
     void LogTimingCounters();
+
+    // The frame timing globals resolved by the cutscene fix, so other fixes can
+    // reuse them instead of resolving the same struct again. Null until
+    // InstallCutsceneTimingFix has succeeded.
+    const void* FrameTimingStruct();
+    const void* FrameTickDelta60();
 } // namespace mgs4

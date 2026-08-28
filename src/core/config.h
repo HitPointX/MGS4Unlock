@@ -32,13 +32,10 @@ namespace config
         // this, cutscenes play at double speed above 60 fps.
         bool gateCutscenes = true;
 
-        // Gates the cloth solver to the engine's native 60 Hz tick.
-        //
-        // Off by default: every gating variant tried so far produces a doubled,
-        // semi-transparent cloth, including one that skipped the solver and
-        // changed nothing else. The cause is not yet understood. Sped-up cloth
-        // sway is cosmetic, so stock behaviour is the better default until it is.
-        bool gateCloth = false;
+        // Corrects cloth timing above 60 fps. Covers the shared simulation
+        // task timing as well as the cloth solver itself: gating the solver
+        // alone leaves cloth and the rest of the pipeline on different clocks.
+        bool gateCloth = true;
 
         // Observation-only hooks on the remaining cloth solvers, reporting
         // which instances each one handles. Costs nothing but a counter.

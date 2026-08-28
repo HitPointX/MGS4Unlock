@@ -107,6 +107,7 @@ namespace
     constexpr ptrdiff_t kTickDelta60Offset = 8;
 
     const int32_t* g_frameTickDelta60 = nullptr;
+    const uint8_t* g_frameTimingStruct = nullptr;
     SafetyHookInline g_polygonDemoUpdate{};
 
     std::atomic<uint64_t> g_demoCalls{0};
@@ -239,6 +240,7 @@ bool mgs4::InstallCutsceneTimingFix()
 
     uint8_t* timing = memory::ResolveRipRelative(lea + kTimeDeltaDispOffset,
                                                  lea + kTimeDeltaLeaLength);
+    g_frameTimingStruct = timing;
     g_frameTickDelta60 = reinterpret_cast<const int32_t*>(timing + kTickDelta60Offset);
 
     logging::Address("frameTimingStruct", reinterpret_cast<uintptr_t>(timing));
@@ -254,45 +256,6 @@ bool mgs4::InstallCutsceneTimingFix()
     }
 
     logging::Info("timing: cutscene playback gated to its native 60 Hz tick");
-    return true;
-}
-
-bool mgs4::InstallClothTimingFix()
-{
-    const module_info::Section& text = module_info::Text();
-
-    const size_t updateMatches = memory::CountMatches(text, kClothProducerUpdateSignature);
-    if (updateMatches != 1)
-    {
-        logging::Error("timing: cloth producer signature matched {} times, expected 1",
-                       updateMatches);
-        return false;
-    }
-
-    uint8_t* update = memory::Scan(text, kClothProducerUpdateSignature);
-    logging::Address("clothProducerUpdate", reinterpret_cast<uintptr_t>(update));
-
-    uint8_t* gate = update + kClothSimulateGateOffset;
-    if (*gate != kClothSimulateGateOpcode)
-    {
-        logging::Error("timing: expected a call at the cloth simulate-gate site, found {:02X}",
-                       gate[0]);
-        return false;
-    }
-
-    g_clothSkipTarget = reinterpret_cast<uintptr_t>(update) + kClothSkipToEpilogueOffset;
-    logging::Address("clothSimulateGate", reinterpret_cast<uintptr_t>(gate));
-    logging::Address("clothSkipTarget", g_clothSkipTarget);
-
-    g_clothSimulateGate = safetyhook::create_mid(gate, &ClothSimulateGateHook);
-    if (!g_clothSimulateGate)
-    {
-        logging::Error("timing: failed to hook the cloth simulate gate");
-        g_clothSkipTarget = 0;
-        return false;
-    }
-
-    logging::Info("timing: cloth simulation gated to its native 60 Hz tick");
     return true;
 }
 
@@ -403,4 +366,14 @@ void mgs4::LogTimingCounters()
         logging::Info("timing: hair simulation called {} times, chain counts seen: {}", hairCalls,
                       formatSeen(g_seenHairChains, std::size(g_seenHairChains)));
     }
+}
+
+const void* mgs4::FrameTimingStruct()
+{
+    return g_frameTimingStruct;
+}
+
+const void* mgs4::FrameTickDelta60()
+{
+    return g_frameTickDelta60;
 }
