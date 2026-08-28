@@ -15,10 +15,14 @@ namespace
     constexpr const char* kDefaultFile = R"(; MGS4Unlock configuration.
 
 [Settings]
-; The three rates the in-game picker should offer, replacing the stock
-; 30, 40, 60. The menu formats its labels from these numbers, so this is
-; literally what you will see. Keep them ascending so the menu reads in order.
-PickerValues = 30, 60, 120
+; The rates the in-game picker should offer, replacing the stock 30, 40, 60.
+; The menu formats its labels from these numbers, so this is literally what you
+; will see. Three or more are supported (up to 8); they are sorted for you.
+;
+; Note that 240 relies on the engine's 300 Hz character tick, which allows 1.25
+; ticks per frame. Above 300 fps that drops below one tick per frame and the
+; timing model breaks down, so do not go higher.
+PickerValues = 30, 60, 120, 240
 
 ; Framerate handed to the engine at startup. 0 follows the choice you made in
 ; the in-game menu. Set a number here to force it regardless of the menu.
@@ -65,10 +69,11 @@ UnpackTimeoutMs = 30000
         return result.ec == std::errc{} && result.ptr == text.data() + text.size();
     }
 
-    // Parses exactly N comma-separated integers. Anything else is rejected, so
-    // a typo leaves the defaults in place rather than half-applying.
+    // Parses up to N comma-separated integers, reporting how many were read.
+    // Any malformed entry rejects the whole list, so a typo leaves the defaults
+    // in place rather than half-applying.
     template <size_t N>
-    bool ParseIntList(std::string_view text, std::array<int, N>& out)
+    bool ParseIntList(std::string_view text, std::array<int, N>& out, size_t& outCount)
     {
         size_t count = 0;
         size_t start = 0;
@@ -89,7 +94,8 @@ UnpackTimeoutMs = 30000
             start = comma + 1;
         }
 
-        return count == N;
+        outCount = count;
+        return count > 0;
     }
 
     bool ParseBool(std::string_view text, bool& out)
@@ -148,17 +154,20 @@ void config::Load(const std::filesystem::path& file)
 
         if (key == "PickerValues")
         {
-            std::array<int, 3> parsed{};
-            if (ParseIntList(value, parsed))
+            std::array<int, kMaxPickerValues> parsed{};
+            size_t count = 0;
+            if (ParseIntList(value, parsed, count) && count >= 1)
             {
                 // Sorted so the menu always reads in ascending order regardless
                 // of how they were written in the ini.
-                std::sort(parsed.begin(), parsed.end());
+                std::sort(parsed.begin(), parsed.begin() + count);
                 g_settings.pickerValues = parsed;
+                g_settings.pickerValueCount = count;
             }
             else
             {
-                logging::Warn("config: PickerValues needs exactly three numbers: '{}'", value);
+                logging::Warn("config: PickerValues needs 1 to {} numbers: '{}'", kMaxPickerValues,
+                              value);
             }
         }
         else if (key == "TargetFramerate")

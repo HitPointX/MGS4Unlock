@@ -54,6 +54,48 @@ namespace
             ctx.rip += kClampStoreOffset;
     }
 
+    // Extending the picker beyond the stock three entries.
+    //
+    // The menu-populate function asks a tiny helper how many options there are
+    // (it is literally `mov eax, 3 / ret`), then calls a filler that copies that
+    // many values into a buffer on the menu object. Both helpers have exactly
+    // one caller, which is that populate function, so changing them cannot leak
+    // into anything else.
+    //
+    // The count is not the real constraint: the caller computes
+    // min(30, optionCount), and uses the same 30 for a parallel list, so the
+    // menu's buffer is already sized for 30 entries. Three was simply the number
+    // of rates the game shipped with.
+    //
+    // Neither helper is distinctive enough to signature on its own -- the count
+    // helper is six bytes -- so both are located from the populate function,
+    // whose prologue is unique, by resolving the two call instructions at known
+    // offsets. The opcodes at those offsets are validated before the targets are
+    // trusted.
+    constexpr const char* kMenuPopulateSignature =
+        "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 "
+        "48 83 EC 20 0F BF";
+    constexpr ptrdiff_t kCallOptionCountOffset = 0xFF;
+    constexpr ptrdiff_t kCallFillOptionsOffset = 0x121;
+    constexpr uint8_t kCallOpcode = 0xE8;
+
+    // `mov eax, imm32` -- the immediate is the option count, at +1.
+    constexpr uint8_t kMovEaxImm32Opcode = 0xB8;
+    constexpr ptrdiff_t kOptionCountImmediateOffset = 1;
+
+    using FillOptionsFn = void(__fastcall*)(int32_t*);
+    SafetyHookInline g_fillOptions{};
+
+    void __fastcall FillOptionsHook(int32_t* buffer)
+    {
+        if (!buffer)
+            return;
+
+        const config::Settings& settings = config::Get();
+        for (size_t i = 0; i < settings.pickerValueCount; ++i)
+            buffer[i] = static_cast<int32_t>(settings.pickerValues[i]);
+    }
+
     constexpr uintptr_t kKnownTableRva = 0x1b08de8;
 
     // entries[3] is the engine's memoized target framerate, -1 until resolved.
@@ -176,13 +218,14 @@ bool mgs4::PatchFrameratePicker()
     logging::Info("picker: current options are {{{}, {}, {}}}", table.entries[0], table.entries[1],
               table.entries[2]);
 
-    // Write the whole array rather than swapping a single entry: the menu
-    // renders the options in array order, so replacing just the middle slot
-    // leaves the list reading 30 / 120 / 60.
+    // Only the first three values go into the .data array: the slot after it is
+    // the engine's cached target framerate, not a fourth option, so writing past
+    // three would corrupt it. Any additional options are supplied by the
+    // menu-fill hook instead, which writes straight into the menu's own buffer.
     std::array<int32_t, kEntryCount> wanted{};
     for (size_t i = 0; i < kEntryCount; ++i)
     {
-        const int value = settings.pickerValues[i];
+        const int value = settings.pickerValues[i % settings.pickerValueCount];
         if (value < 10 || value > 1000)
         {
             logging::Error("picker: PickerValues entry {} ({}) is out of range", i, value);
@@ -226,7 +269,7 @@ void mgs4::ReassertFrameratePicker()
     const config::Settings& settings = config::Get();
     std::array<int32_t, kEntryCount> wanted{};
     for (size_t i = 0; i < kEntryCount; ++i)
-        wanted[i] = static_cast<int32_t>(settings.pickerValues[i]);
+        wanted[i] = static_cast<int32_t>(settings.pickerValues[i % settings.pickerValueCount]);
 
     if (std::equal(wanted.begin(), wanted.end(), g_table))
         return;
@@ -332,4 +375,84 @@ void mgs4::SetFramerateClampAllowedValue(int allowed)
     logging::Info("picker: the framerate clamp will now let {} fps through instead of {}", allowed,
                   g_clampAllowedValue);
     g_clampAllowedValue = allowed;
+}
+
+bool mgs4::InstallExtendedPicker()
+{
+    const config::Settings& settings = config::Get();
+    if (settings.pickerValueCount <= kEntryCount)
+    {
+        logging::Info("picker: {} options requested, the stock count already covers it",
+                      settings.pickerValueCount);
+        return true;
+    }
+
+    const module_info::Section& text = module_info::Text();
+    if (memory::CountMatches(text, kMenuPopulateSignature) != 1)
+    {
+        logging::Error("picker: the menu-populate signature was not unique");
+        return false;
+    }
+
+    uint8_t* populate = memory::Scan(text, kMenuPopulateSignature);
+    uint8_t* callCount = populate + kCallOptionCountOffset;
+    uint8_t* callFill = populate + kCallFillOptionsOffset;
+
+    if (*callCount != kCallOpcode || *callFill != kCallOpcode)
+    {
+        logging::Error("picker: expected calls at the menu-populate offsets, found {:02X} and {:02X}",
+                       callCount[0], callFill[0]);
+        return false;
+    }
+
+    uint8_t* optionCount = memory::ResolveRipRelative(callCount + 1, callCount + 5);
+    uint8_t* fillOptions = memory::ResolveRipRelative(callFill + 1, callFill + 5);
+
+    logging::Address("menuPopulate", reinterpret_cast<uintptr_t>(populate));
+    logging::Address("optionCount", reinterpret_cast<uintptr_t>(optionCount));
+    logging::Address("fillOptions", reinterpret_cast<uintptr_t>(fillOptions));
+
+    if (!text.contains(optionCount) || !text.contains(fillOptions))
+    {
+        logging::Error("picker: a resolved menu helper lies outside .text");
+        return false;
+    }
+
+    // The count helper must be the `mov eax, imm32` shape we expect before its
+    // immediate is rewritten.
+    if (*optionCount != kMovEaxImm32Opcode)
+    {
+        logging::Error("picker: the option-count helper is not mov eax,imm32 (found {:02X})",
+                       optionCount[0]);
+        return false;
+    }
+
+    int32_t stockCount = 0;
+    memory::Read(optionCount + kOptionCountImmediateOffset, stockCount);
+    if (stockCount != static_cast<int32_t>(kEntryCount))
+    {
+        logging::Error("picker: the option-count helper returns {}, expected {}", stockCount,
+                       kEntryCount);
+        return false;
+    }
+
+    const auto wanted = static_cast<int32_t>(settings.pickerValueCount);
+    if (!memory::Write(optionCount + kOptionCountImmediateOffset, wanted))
+    {
+        logging::Error("picker: failed to patch the option count");
+        return false;
+    }
+
+    g_fillOptions = safetyhook::create_inline(fillOptions,
+                                              reinterpret_cast<void*>(&FillOptionsHook));
+    if (!g_fillOptions)
+    {
+        logging::Error("picker: failed to hook the option filler");
+        memory::Write(optionCount + kOptionCountImmediateOffset,
+                      static_cast<int32_t>(kEntryCount));
+        return false;
+    }
+
+    logging::Info("picker: extended the menu from {} to {} options", stockCount, wanted);
+    return true;
 }

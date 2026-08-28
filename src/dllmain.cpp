@@ -105,6 +105,14 @@ namespace
                 logging::Error("picker: the framerate may revert to 60 after the next config reapply");
         }
 
+        // Extending past three options patches code, so it has to wait for the
+        // DRM stub as well.
+        if (settings.patchPicker)
+        {
+            if (!mgs4::InstallExtendedPicker())
+                logging::Error("picker: the menu will keep its stock three options");
+        }
+
         if (settings.gateCutscenes)
         {
             if (!mgs4::InstallCutsceneTimingFix())

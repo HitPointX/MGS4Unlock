@@ -20,6 +20,12 @@ namespace mgs4
     // through too.
     void SetFramerateClampAllowedValue(int allowed);
 
+    // Extends the in-game picker past its stock three options, by patching the
+    // engine's hardcoded option count and supplying the values directly to the
+    // menu. Needed for anything beyond three rates, since the .data option array
+    // has only three slots before the cached target framerate.
+    bool InstallExtendedPicker();
+
     // Seeds the engine's cached target framerate so it does not fall back to 60.
     //
     // The engine resolves its target once, on first use, from a config variable

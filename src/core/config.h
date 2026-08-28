@@ -1,17 +1,24 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <filesystem>
 
 namespace config
 {
+    // The menu's own list capacity is 30 entries, so this is a self-imposed
+    // limit rather than an engine one.
+    inline constexpr size_t kMaxPickerValues = 8;
+
     struct Settings
     {
-        // The complete set of rates the in-game picker should offer, replacing
-        // the stock {30, 40, 60}. The menu formats its labels from these
-        // integers, so whatever is written here is what the player sees. Kept
-        // sorted so the menu reads in ascending order.
-        std::array<int, 3> pickerValues{30, 60, 120};
+        // The rates the in-game picker should offer, replacing the stock
+        // 30/40/60. The menu formats its labels from these integers, so this is
+        // literally what the player sees. More than three is supported: the
+        // engine's hardcoded option count is patched to match however many are
+        // listed. Kept sorted so the menu reads in ascending order.
+        std::array<int, kMaxPickerValues> pickerValues{30, 60, 120, 240};
+        size_t pickerValueCount = 4;
 
         // Framerate to hand the engine at startup. 0 means follow whatever the
         // player last chose in the in-game menu, which the game saves but never
