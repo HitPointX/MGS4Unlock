@@ -26,7 +26,16 @@ namespace config
         bool gateCutscenes = true;
 
         // Gates the cloth solver to the engine's native 60 Hz tick.
-        bool gateCloth = true;
+        //
+        // Off by default. Two crashes reproduced at the identical fault address,
+        // both following the same pattern (3 cloth calls, then nothing, then a
+        // fault 15-25s later) with this enabled. The fault site is unrelated
+        // code that shares memory with the mod's own frame-timing globals,
+        // consistent with the simulate-gate redirect skipping some bookkeeping
+        // -- likely a deferred object registration or cleanup call -- that the
+        // normal simulation path issues symmetrically. Not root-caused yet; see
+        // AGENT.md. Sped-up cloth sway is a cosmetic issue, this was a crash.
+        bool gateCloth = false;
 
         // Writes the decrypted sections to disk once the DRM stub has run, for
         // offline analysis. Off by default: it costs ~30 MB per launch.
