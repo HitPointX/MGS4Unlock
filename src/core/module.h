@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
 #include <string_view>
 
 namespace module_info
@@ -9,7 +10,8 @@ namespace module_info
     struct Section
     {
         uint8_t* begin = nullptr;
-        size_t size = 0;
+        size_t size = 0;      // VirtualSize: the whole mapped range
+        size_t rawSize = 0;   // SizeOfRawData: the part backed by the file
 
         [[nodiscard]] bool valid() const { return begin != nullptr && size != 0; }
         [[nodiscard]] uint8_t* end() const { return begin + size; }
@@ -17,6 +19,15 @@ namespace module_info
         {
             const auto* b = static_cast<const uint8_t*>(p);
             return b >= begin && b < end();
+        }
+
+        // The initialized portion. .data's VirtualSize on this target is ~575 MB
+        // against a raw size of ~2.5 MB, the remainder being zeroed BSS, so
+        // anything looking for a value the linker wrote should search this
+        // instead. It is both correct and about 200x less work.
+        [[nodiscard]] Section initialized() const
+        {
+            return {begin, rawSize ? (std::min)(size, rawSize) : size, rawSize};
         }
     };
 

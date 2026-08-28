@@ -23,6 +23,10 @@
 namespace
 {
     constexpr uintptr_t kKnownTableRva = 0x1b08de8;
+
+    // entries[3] is the engine's memoized target framerate, -1 until resolved.
+    constexpr size_t kCachedTargetIndex = 3;
+    constexpr int32_t kUnresolvedTarget = -1;
     constexpr size_t kEntryCount = 3;
     constexpr int32_t kTerminator = -1;
 
@@ -75,9 +79,15 @@ namespace
             logging::Info("picker: the engine's max-fps cap reads {}", entries[6]);
     }
 
+    int32_t* g_table = nullptr;
+
     Table Locate()
     {
-        const module_info::Section& data = module_info::Data();
+        // Search only the initialized part of .data. Scanning the full mapped
+        // range costs about 120 ms here, which is long enough for the game to
+        // read its saved settings and validate them against the stock option
+        // list before our rewrite lands.
+        const module_info::Section data = module_info::Data().initialized();
         if (!data.valid())
         {
             logging::Error("picker: the .data section was not found");
@@ -119,6 +129,7 @@ bool mgs4::PatchFrameratePicker()
         return false;
     }
 
+    g_table = table.entries;
     logging::Address("framerateOptionTable", reinterpret_cast<uintptr_t>(table.entries));
     logging::Info("picker: located the option table by {}", table.how);
     LogSurroundingStruct(table.entries);
@@ -170,5 +181,62 @@ bool mgs4::PatchFrameratePicker()
 
     logging::Info("picker: options are now {{{}, {}, {}}}", table.entries[0], table.entries[1],
                   table.entries[2]);
+    return true;
+}
+
+void mgs4::ReassertFrameratePicker()
+{
+    if (!g_table)
+        return;
+
+    LogSurroundingStruct(g_table);
+
+    const config::Settings& settings = config::Get();
+    std::array<int32_t, kEntryCount> wanted{};
+    for (size_t i = 0; i < kEntryCount; ++i)
+        wanted[i] = static_cast<int32_t>(settings.pickerValues[i]);
+
+    if (std::equal(wanted.begin(), wanted.end(), g_table))
+        return;
+
+    logging::Warn("picker: the option table was changed underneath us, rewriting");
+    if (memory::Write(g_table, wanted))
+        logging::Info("picker: options restored to {{{}, {}, {}}}", g_table[0], g_table[1],
+                      g_table[2]);
+}
+
+bool mgs4::SeedTargetFramerate(int framerate)
+{
+    if (!g_table)
+    {
+        logging::Error("picker: cannot seed the target framerate, the table was not located");
+        return false;
+    }
+
+    if (framerate < 10 || framerate > 1000)
+    {
+        logging::Error("picker: refusing to seed an out-of-range target framerate ({})", framerate);
+        return false;
+    }
+
+    int32_t* cached = &g_table[kCachedTargetIndex];
+    const int32_t before = *cached;
+
+    // Only seed while the engine has not resolved a target of its own. If it
+    // already has one, overwriting would fight whatever set it.
+    if (before != kUnresolvedTarget)
+    {
+        logging::Info("picker: the engine already resolved a target of {}, leaving it alone",
+                      before);
+        return false;
+    }
+
+    if (!memory::Write(cached, static_cast<int32_t>(framerate)))
+    {
+        logging::Error("picker: failed to seed the target framerate");
+        return false;
+    }
+
+    logging::Info("picker: seeded the engine's target framerate to {} (was unresolved)", framerate);
     return true;
 }

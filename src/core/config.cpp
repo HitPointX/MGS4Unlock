@@ -20,12 +20,20 @@ namespace
 ; literally what you will see. Keep them ascending so the menu reads in order.
 PickerValues = 30, 60, 120
 
+; Framerate handed to the engine at startup. 0 follows the choice you made in
+; the in-game menu. Set a number here to force it regardless of the menu.
+TargetFramerate = 0
+
 ; Set to false to leave the picker untouched.
 PatchPicker = true
 
 ; Gates cutscene playback to the engine's native 60 Hz tick. Without this,
 ; cutscenes run at double speed above 60 fps.
 GateCutscenes = true
+
+; Gates the cloth solver to the engine's native 60 Hz tick. Without this,
+; Snake's coat and kilt sway at double speed above 60 fps.
+GateCloth = true
 
 ; Writes the decrypted .text/.rdata/.data to dump/ after the DRM stub runs.
 ; Only needed when developing new signatures; costs ~30 MB per launch.
@@ -146,6 +154,11 @@ void config::Load(const std::filesystem::path& file)
                 logging::Warn("config: PickerValues needs exactly three numbers: '{}'", value);
             }
         }
+        else if (key == "TargetFramerate")
+        {
+            if (!ParseInt(value, g_settings.targetFramerate))
+                logging::Warn("config: TargetFramerate is not a number: '{}'", value);
+        }
         else if (key == "PatchPicker")
         {
             if (!ParseBool(value, g_settings.patchPicker))
@@ -155,6 +168,11 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.gateCutscenes))
                 logging::Warn("config: GateCutscenes is not a boolean: '{}'", value);
+        }
+        else if (key == "GateCloth")
+        {
+            if (!ParseBool(value, g_settings.gateCloth))
+                logging::Warn("config: GateCloth is not a boolean: '{}'", value);
         }
         else if (key == "DumpSections")
         {

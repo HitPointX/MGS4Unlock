@@ -9,6 +9,7 @@
 #include "core/pdata.h"
 #include "dumper/dumper.h"
 #include "mgs4/picker.h"
+#include "mgs4/savedsettings.h"
 #include "mgs4/timing.h"
 #include "proxy/proxy.h"
 
@@ -63,6 +64,16 @@ namespace
         {
             if (!mgs4::PatchFrameratePicker())
                 logging::Error("picker: the framerate picker was left unchanged");
+
+            // The game saves the chosen rate but never loads it back into its
+            // target-framerate path, so a rate above the stock list silently
+            // reverts to 60 on the next launch. Restore it here.
+            int target = settings.targetFramerate;
+            if (target == 0)
+                target = mgs4::ReadSavedFramerate(dir).value_or(0);
+
+            if (target > 0)
+                mgs4::SeedTargetFramerate(target);
         }
         else
         {
@@ -92,12 +103,24 @@ namespace
             logging::Info("timing: cutscene gating disabled by config");
         }
 
+        if (settings.gateCloth)
+        {
+            if (!mgs4::InstallClothTimingFix())
+                logging::Error("timing: cloth will sway fast above 60 fps");
+        }
+        else
+        {
+            logging::Info("timing: cloth gating disabled by config");
+        }
+
         // Periodic counters are the cheapest way to confirm from the log alone
         // that a hook is firing on the frames we expect.
         for (;;)
         {
             ::Sleep(30000);
             mgs4::LogTimingCounters();
+            if (settings.patchPicker)
+                mgs4::ReassertFrameratePicker();
         }
     }
 } // namespace

@@ -52,7 +52,8 @@ bool module_info::Initialize()
         char name[9] = {};
         std::memcpy(name, section->Name, 8);
         g_sections.emplace_back(name, Section{bytes + section->VirtualAddress,
-                                              section->Misc.VirtualSize});
+                                              section->Misc.VirtualSize,
+                                              section->SizeOfRawData});
     }
 
     g_text = Find(".text");

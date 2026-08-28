@@ -30,6 +30,7 @@ add_library(MGS4Unlock SHARED
     src/core/pdata.cpp
     src/dumper/dumper.cpp
     src/mgs4/picker.cpp
+    src/mgs4/savedsettings.cpp
     src/mgs4/timing.cpp
 )
 

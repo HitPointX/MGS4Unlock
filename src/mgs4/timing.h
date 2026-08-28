@@ -7,6 +7,11 @@ namespace mgs4
     // the selected framerate. Requires .text to be decrypted first.
     bool InstallCutsceneTimingFix();
 
+    // Gates the cloth solver to the engine's native 60 Hz tick, publishing the
+    // existing transform on the frames it skips so nothing judders. Without this,
+    // Snake's coat and kilt sway at double speed above 60 fps.
+    bool InstallClothTimingFix();
+
     // Reports how often the cutscene update ran versus was gated out. At 120 fps
     // roughly half of the calls should be gated; at 60 fps, none.
     void LogTimingCounters();

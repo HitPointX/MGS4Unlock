@@ -13,12 +13,20 @@ namespace config
         // sorted so the menu reads in ascending order.
         std::array<int, 3> pickerValues{30, 60, 120};
 
+        // Framerate to hand the engine at startup. 0 means follow whatever the
+        // player last chose in the in-game menu, which the game saves but never
+        // reads back into its target-framerate path.
+        int targetFramerate = 0;
+
         // Master switch for the picker patch.
         bool patchPicker = true;
 
         // Gates cutscene playback to the engine's native 60 Hz tick. Without
         // this, cutscenes play at double speed above 60 fps.
         bool gateCutscenes = true;
+
+        // Gates the cloth solver to the engine's native 60 Hz tick.
+        bool gateCloth = true;
 
         // Writes the decrypted sections to disk once the DRM stub has run, for
         // offline analysis. Off by default: it costs ~30 MB per launch.
