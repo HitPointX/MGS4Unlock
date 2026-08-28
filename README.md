@@ -3,24 +3,27 @@
 A framerate unlocker for *METAL GEAR SOLID 4: Guns of the Patriots, Master Collection Version*.
 
 The game ships with a "Max Frame Rate" setting offering 30, 40 and 60. This mod
-rewrites that list so 120 is selectable natively, and corrects the one engine
-subsystem that does not scale correctly above 60.
+replaces that list with 30, 60, 120 and 240, makes the choice stick, and
+corrects the engine systems that do not scale correctly above 60.
 
-Current version: **0.6a** (alpha)
+Current version: **0.7b** (beta)
 
 ## Status
 
 | Area | State |
 |---|---|
 | Injection via proxy DLL | Working |
-| Framerate picker showing 30 / 60 / 120 | Working, verified in game |
-| 120 fps rendering | Working, verified in game |
-| Gameplay, animation and audio at 120 | Correct without intervention |
-| Cutscene playback at 120 | Gated to native rate, under test |
-| Cloth, OctoCamo and ragdoll at 120 | Not yet formally verified |
-| 240 fps | Blocked, see [Known limits](#known-limits) |
+| Picker showing 30 / 60 / 120 / 240 | Working, verified in game |
+| Selection persists across relaunches | Working, verified in game |
+| Changing the selection without a relaunch | Working, verified in game |
+| 120 and 240 fps rendering | Working, verified in game |
+| Gameplay, animation and audio | Correct at 120 and 240 |
+| Character movement and animation speed | Corrected, verified at 240 |
+| Cutscene playback | Corrected, verified in game |
+| Cloth, including the headdress and scarf | Corrected, verified at 120 and 240 |
+| Stability | Not characterised, see [Known limits](#known-limits) |
 
-This is alpha software. It writes to another process's memory and installs code
+This is beta software. It writes to another process's memory and installs code
 hooks. Do not use it in any online mode.
 
 ## Requirements
@@ -129,23 +132,41 @@ The array is located by byte signature rather than by a fixed address, its
 contents are validated for shape before anything is written, and the write is
 read back to confirm it took.
 
-### Cutscene timing
+### Timing above 60 fps
 
-Above 60 fps, gameplay, animation and audio all behave correctly. The engine
-drives them from a real frame delta, so they scale on their own.
+Most of the game scales on its own. Gameplay, audio and general animation are
+driven from a real frame delta and behave correctly at 120 and 240 with no
+intervention. Four systems do not, and each needs different treatment.
 
-Cutscene playback does not. It advances one whole 60 Hz tick per call, so at
-120 fps it plays at double speed and then stalls periodically as it
-resynchronises against the audio.
+**Character control** advances in whole ticks of a 300 Hz counter. 300 divides
+evenly by 60, so the framerate the game shipped with loses nothing, but 120
+gives 2.5 ticks per frame and 240 gives 1.25, and the fractional part was
+discarded every frame. Animation ran slow, subtly at 120 and at roughly four
+fifths speed at 240. The remainder is now carried between frames, so the counts
+stay whole while their long-run average matches elapsed time.
 
-The engine already tracks how many 60 Hz ticks each frame covered. Gating the
-cutscene update on that counter lets cutscenes advance at their native rate
-while everything else continues to render at full speed. The framerate is not
-capped, and no other subsystem is affected.
+**Cutscene playback** advances a whole 60 Hz tick per call, so above 60 it plays
+at double speed and then stalls to resynchronise against the audio. It is gated
+to run only on native 60 Hz ticks. The framerate is not capped; only that one
+system is rate-limited.
 
-The consequence is that cutscenes animate at 60 while the game renders at 120.
-The engine offers no interpolation between cutscene states, so this is inherent
-to the approach.
+**Simulation task timing** is centralised. One function converts frame time into
+a step size and a substep count, and every simulation task consults it. It now
+receives the real frame delta rather than a step sized for 60 Hz.
+
+**Cloth** is simulated every frame using that same real delta.
+
+That last one is worth explaining, because the intuitive approach is wrong.
+Gating cloth to 60 Hz, the way cutscenes are gated, does fix the sway rate, but
+it leaves a doubled, semi-transparent copy of the garment on screen. A garment
+whose solver runs on only half the frames ends up inconsistent with the parts of
+the pipeline that run on all of them, and no amount of adjusting what happens on
+the skipped frame changes that. Simulating every frame removes the skipped frame
+entirely. The solver is stiff and was tuned for a fixed step, but it tolerates a
+shorter step far better than it tolerates the mismatch.
+
+The general rule: gating suits a system that owns its own timeline end to end,
+and breaks a system that is one stage of a per-frame pipeline.
 
 ### Working with an encrypted executable
 
@@ -224,7 +245,7 @@ build.sh             Build entry point
 
 ## Versioning
 
-Releases run `0.1a` through `0.6a` in alpha, `0.7b` onward in beta, and `1.0r`
+Releases run `0.1a` through `0.7a` in alpha, `0.7b` onward in beta, and `1.0r`
 at release.
 
 | Suffix | Stage | Meaning |
@@ -234,7 +255,7 @@ at release.
 | `r` | Release | Verified across a full playthrough. |
 
 The number before the suffix increments once per meaningful chunk of work, not
-per commit. Alpha runs to `0.6a`; anything from `0.7` onward is beta.
+per commit.
 
 Promotion to beta requires all of:
 
@@ -246,22 +267,29 @@ See [CHANGELOG.md](CHANGELOG.md) for what landed in each version.
 
 ## Known limits
 
-**240 fps is not currently reachable.** Two separate obstacles:
+**300 fps is the hard ceiling.** Character control advances in whole ticks of a
+300 Hz counter, so above 300 fps a frame is worth less than a single tick and
+the character update would have to be called with nothing to advance. 240 sits
+comfortably under this at 1.25 ticks per frame. There is no path past 300
+without a different model.
 
-1. The engine holds a maximum framerate cap of 128 in the same structure as the
-   picker's option list. Values above it are unlikely to be accepted without
-   further work.
-2. Character control is driven by a 300 Hz tick counter. 240 fps gives 1.25
-   ticks per frame, which is workable, but above 300 fps the count drops below
-   one tick per frame and the model breaks down entirely. 300 fps is a hard
-   ceiling regardless of anything else.
+An earlier version of these notes described a value of 128 near the picker's
+option table as a maximum framerate cap. That was wrong: it is a platform
+identifier used to select which per-platform config value to read. No cap stands
+in the way of 240.
 
-**Cutscenes animate at 60** while rendering at the selected rate, as described
-above.
+**Cutscenes animate at 60** while the game renders at the selected rate. The
+engine offers no interpolation between cutscene states, so this is inherent to
+gating that system.
 
-**One unexplained crash** was seen during testing at 120 fps. It has not been
-reproduced or attributed. If you hit one, launching with `PROTON_LOG=1` on Linux
-will capture detail.
+**Stability is not characterised.** Crashes have been seen in several distinct
+signatures during development. One was root-caused and fixed: a mid-function
+redirect that left a callee-saved register holding a stale value, which
+surfaced as a fault over a megabyte away in unrelated code. At least one other
+signature recurred before any timing work existed, so it is unlikely to
+originate here, but it is not understood. If you hit a crash, the game writes
+a dump under `MGS4/crash_dumps/`, and launching with `PROTON_LOG=1` on Linux
+captures more detail.
 
 ## Game updates
 

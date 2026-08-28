@@ -1,10 +1,72 @@
 # Changelog
 
-Versions run `0.1a` through `0.6a` in alpha, `0.7b` onward in beta, and `1.0r`
+Versions run `0.1a` through `0.7a` in alpha, `0.7b` onward in beta, and `1.0r`
 at release. Each version covers a chunk of work rather than a single commit.
 
 All work targets game build `[Code]a84606af` (2026-08-25),
 `mgs4.exe` md5 `48e656dae7fb7e85ec162d25aa7a311f`.
+
+---
+
+## 0.7b, cloth and simulation timing
+
+First beta. Everything the mod sets out to correct is now correct at both 120
+and 240, confirmed in game.
+
+- Corrected the engine's shared simulation task timing. All simulation work is
+  scheduled through one function that converts frame time into a step size and a
+  substep count; it now receives the real frame delta rather than a step sized
+  for 60 Hz. This alone fixed the headdress and scarf.
+- Cloth is now simulated every frame using that same real frame delta.
+- Added `ClothMode`, which selects between simulating every frame (`delta`, the
+  default) and running the solver only on native 60 Hz frames (`gate`).
+- Fixed a crash caused by a mid-function redirect that left a callee-saved
+  register holding a stale value. The fault surfaced over a megabyte away from
+  the hook, in unrelated code, because the bad value propagated outward until
+  something used it as a pointer.
+- Added observation-only hooks that report which cloth solver handles which
+  garment, so a specific garment can be matched to the code that drives it.
+- Fixed the periodic counters returning early when one counter was zero, which
+  had been suppressing every other line during normal gameplay.
+
+The reasoning worth keeping: gating a system to its native rate is correct when
+that system owns its own timeline end to end, which is why it works for
+cutscenes. It is wrong for a system that is one stage of a per-frame pipeline.
+A garment whose solver runs on only half the frames ends up inconsistent with
+everything around it that runs on all of them, which showed on screen as a
+doubled, semi-transparent copy of the garment. Several attempts to fix that by
+changing what a skipped frame did all failed for the same reason: the premise,
+not the detail, was wrong.
+
+---
+
+## 0.7a, framerate selection and 240 fps
+
+- Added a fourth entry to the in-game picker, giving 30 / 60 / 120 / 240. The
+  stock count of three came from a six-byte helper returning 3 and an unrolled
+  filler; the menu's own list is already sized for 30 entries, so this is a
+  count patch plus a hook that supplies the values.
+- `PickerValues` now accepts up to eight rates.
+- Fixed character movement and animation running slow above 60 fps. Character
+  control advances in whole ticks of a 300 Hz counter, and 300 divides evenly by
+  60 but not by 120 or 240, so the fractional part of every frame was discarded.
+  The remainder is now carried between frames. The error was subtle at 120 and
+  around four fifths speed at 240.
+- Fixed the chosen framerate not surviving a relaunch. The engine resolves its
+  target once from a config lookup that finds nothing here, falls back to a
+  hardcoded 60 and memoizes that, never consulting the value the game itself
+  saved on quit. The saved choice is now read and seeded before the engine first
+  asks.
+- Bypassed a clamp in the config-apply path that snapped any requested rate
+  above 60 back down to 60, which had been undoing the seed.
+- The target framerate is also reasserted on a timer, because at least one other
+  code path writes it directly and bypasses that clamp entirely.
+- Fixed a live menu change being fought back to the startup value. The desired
+  rate is now re-read each second, so selecting a different rate applies within
+  about a second instead of requiring a relaunch.
+- Corrected the earlier reading of a nearby constant as a maximum framerate cap.
+  It is a platform identifier. No cap stands in the way of 240; the real ceiling
+  is the 300 Hz character tick, which puts the hard limit at 300 fps.
 
 ---
 
