@@ -276,4 +276,4 @@ lookup failed rather than the mod misbehaving quietly.
 
 ## License
 
-Not yet chosen.
+MIT. See [LICENSE](LICENSE).
