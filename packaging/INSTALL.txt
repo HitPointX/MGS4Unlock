@@ -1,0 +1,124 @@
+MGS4Unlock @VERSION@
+====================
+
+A framerate unlocker for METAL GEAR SOLID 4: Guns of the Patriots,
+Master Collection Version.
+
+Replaces the in-game "Max Frame Rate" options (30, 40, 60) with
+30, 60, 120 and 240, makes the choice stick across relaunches, and corrects
+the engine systems that do not scale correctly above 60 fps.
+
+https://github.com/HitPointX/MGS4FPSUnlocker
+
+
+WHAT IS IN THIS ARCHIVE
+-----------------------
+
+  dbghelp.dll      the mod
+  INSTALL.txt      this file
+  LICENSE          MIT
+
+
+INSTALL
+-------
+
+Copy dbghelp.dll into the folder that contains mgs4.exe.
+
+That is the MGS4 subfolder of the game directory, not the game directory
+itself. A typical path:
+
+  .../steamapps/common/METAL GEAR SOLID 4/MGS4/dbghelp.dll
+
+On Windows that is all that is required.
+
+
+LINUX AND STEAM DECK
+--------------------
+
+Wine will not load a DLL of its own name from the game folder unless it is
+told to. Without this step the mod does nothing at all and no log appears.
+
+In Steam, right click the game, Properties, and add to Launch Options:
+
+  WINEDLLOVERRIDES="dbghelp=n,b" %command%
+
+If you already have something in Launch Options, keep it and add the override
+in front of %command%, for example:
+
+  WINEDLLOVERRIDES="dbghelp=n,b" MANGOHUD=1 %command%
+
+
+FIRST RUN
+---------
+
+Start the game and open Options. The frame rate setting should now offer
+30, 60, 120 and 240. Pick one and apply it. The choice takes effect within
+about a second and is remembered next time you launch.
+
+A configuration file, MGS4Unlock.ini, is created next to the DLL on first
+run. A log is written to the logs folder beside it.
+
+
+CHECKING IT LOADED
+------------------
+
+Open logs/MGS4Unlock.log. The first lines should look like this:
+
+  [I] MGS4Unlock v@VERSION@ loaded, impersonating dbghelp.dll
+  [I] proxy: forwarding to C:\windows\system32\dbghelp.dll (9 exports resolved, 0 missing)
+  [I] picker: extended the menu from 3 to 4 options
+
+If the file does not exist at all, the mod was never loaded. On Linux that
+almost always means the WINEDLLOVERRIDES launch option is missing.
+
+
+CONFIGURATION
+-------------
+
+MGS4Unlock.ini is created next to the DLL and is commented. The settings most
+worth knowing:
+
+  PickerValues        the rates the menu offers. Up to eight, sorted for you.
+                      Default: 30, 60, 120, 240
+
+  TargetFramerate     0 follows the in-game menu. Set a number to force a rate
+                      regardless of what the menu says.
+
+Every correction the mod makes has its own on/off switch, so if something
+looks wrong you can turn one thing off at a time to find out which.
+
+
+NOTES AND LIMITS
+----------------
+
+240 works, and 300 fps is the hard ceiling. Character animation advances in
+whole ticks of a 300 Hz counter, so above 300 fps a frame is worth less than
+a single tick and the timing model has nothing to advance.
+
+Selecting a rate your display cannot present will not produce that framerate.
+Turn VSync off in the game options if you want to exceed your refresh rate.
+
+Cutscenes animate at 60 while the game renders at your selected rate. The
+engine has no way to interpolate cutscene playback, so this is unavoidable.
+
+This is beta software. It writes to another process's memory and installs
+code hooks. Do not use it in any online mode.
+
+
+VERSION
+-------
+
+Built for game build [Code]a84606af, dated 2026-08-25.
+
+Signatures are tied to the game's code layout, so a game update may stop the
+mod finding what it needs. It is designed to fail loudly rather than quietly:
+if something cannot be located, the log says which lookup failed and the mod
+leaves that system alone rather than patching the wrong thing.
+
+
+UNINSTALL
+---------
+
+Delete dbghelp.dll from the MGS4 folder. Optionally also delete
+MGS4Unlock.ini and the logs folder. Nothing else is modified: the mod makes
+no permanent changes to the game files.
