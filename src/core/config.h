@@ -74,6 +74,22 @@ namespace config
         // cutscenes while behaving correctly in gameplay.
         bool clothFollowsCutscene = true;
 
+        // Substitute the real frame delta into the engine's shared simulation
+        // task timing.
+        //
+        // Off by default. This applies one correction to every simulation task
+        // in the game, and testing found it was the cause of Snake's coat, the
+        // NPC coats and Meryl's earring all behaving badly above 60 fps: those
+        // solvers already receive a correct per-frame delta and do not want it
+        // adjusted. It was originally credited with fixing the headdress and
+        // scarf, but it shipped alongside the cloth producer changes and was
+        // never isolated from them, so that credit is unproven.
+        //
+        // Left in place rather than removed because if some system does turn out
+        // to need it, the right form is a selective version that adjusts only
+        // the tasks that want it, not a global one.
+        bool substituteTaskTiming = false;
+
         // Leave the jacket solver's stepping to the engine, rather than
         // letting the shared task timing hook substitute a step and force a
         // single substep. Its caller already passes a correct per-frame delta.

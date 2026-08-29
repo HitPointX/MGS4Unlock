@@ -55,6 +55,12 @@ ClothMode = delta
 ; animation moving them advances at 60 Hz while the cloth simulates faster.
 ClothFollowsCutscene = true
 
+; Substitute the real frame delta into the engine's shared simulation task
+; timing. Off by default: it applies one correction to every simulation task in
+; the game, and was found to be the cause of Snake's coat, the NPC coats and
+; Meryl's earring misbehaving above 60 fps.
+SubstituteTaskTiming = false
+
 ; Leave the jacket solver's stepping to the engine instead of letting the
 ; shared task timing correction alter it.
 ExcludeJacketFromTaskTiming = true
@@ -241,6 +247,11 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.clothFollowsCutscene))
                 logging::Warn("config: ClothFollowsCutscene is not a boolean: '{}'", value);
+        }
+        else if (key == "SubstituteTaskTiming")
+        {
+            if (!ParseBool(value, g_settings.substituteTaskTiming))
+                logging::Warn("config: SubstituteTaskTiming is not a boolean: '{}'", value);
         }
         else if (key == "ExcludeJacketFromTaskTiming")
         {

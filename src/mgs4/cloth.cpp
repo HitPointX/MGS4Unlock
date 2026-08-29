@@ -179,6 +179,9 @@ namespace
         if (t_inJacket && config::Get().excludeJacketFromTaskTiming)
             return stepCount;
 
+        if (!config::Get().substituteTaskTiming)
+            return stepCount;
+
         const float exactDelta = g_frameDeltaSeconds ? *g_frameDeltaSeconds : 0.0f;
         const float stockStep = *taskStep;
 
