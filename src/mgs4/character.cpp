@@ -131,13 +131,20 @@ bool mgs4::InstallCharacterTiming(const void* frameTimingStruct)
     return true;
 }
 
-void mgs4::LogCharacterCounters()
+void mgs4::LogCharacterCounters(double intervalSeconds)
 {
+    static uint64_t lastAdjusted = 0;
+
     const uint64_t adjusted = g_framesAdjusted.load(std::memory_order_relaxed);
     if (adjusted == 0)
         return;
 
+    const double rate = intervalSeconds > 0.0
+                            ? static_cast<double>(adjusted - lastAdjusted) / intervalSeconds
+                            : 0.0;
+    lastAdjusted = adjusted;
+
     const int32_t ticks = g_frameTickDelta300 ? *g_frameTickDelta300 : 0;
-    logging::Info("character: {} frames adjusted, last tick delta {}, remainder {:.3f}", adjusted,
-                  ticks, g_tickRemainder);
+    logging::Info("survey: character {:.0f}/s, tick delta {}, remainder {:.3f}", rate, ticks,
+                  g_tickRemainder);
 }

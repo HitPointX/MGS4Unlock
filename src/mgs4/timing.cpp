@@ -206,39 +206,48 @@ bool mgs4::InstallClothDiagnostics()
     return ok;
 }
 
-void mgs4::LogTimingCounters()
+void mgs4::LogTimingCounters(double intervalSeconds)
 {
-    // Each counter reports independently. An earlier version returned early when
-    // the cutscene count was zero, which silently suppressed every other line
-    // during normal gameplay.
-    const uint64_t calls = g_demoCalls.load(std::memory_order_relaxed);
-    const uint64_t skipped = g_demoSkipped.load(std::memory_order_relaxed);
-    if (calls != 0)
-    {
-        logging::Info("timing: cutscene update called {} times, {} gated out ({:.1f}%)", calls,
-                      skipped,
-                      100.0 * static_cast<double>(skipped) / static_cast<double>(calls));
-    }
+    static uint64_t lastDemo = 0, lastDemoGated = 0, lastJacket = 0;
 
-    const auto formatSeen = [](std::atomic<uint32_t>* table, size_t count) {
-        std::string out;
-        for (size_t i = 0; i < count; ++i)
-        {
-            const uint32_t value = table[i].load(std::memory_order_relaxed);
-            if (value == 0)
-                break;
-            if (!out.empty())
-                out += ", ";
-            out += std::to_string(value);
-        }
-        return out.empty() ? std::string("none") : out;
+    const uint64_t demo = g_demoCalls.load(std::memory_order_relaxed);
+    const uint64_t demoGated = g_demoSkipped.load(std::memory_order_relaxed);
+    const uint64_t jacket = g_jacketCalls.load(std::memory_order_relaxed);
+
+    const auto rate = [intervalSeconds](uint64_t now, uint64_t& last) {
+        const double per = intervalSeconds > 0.0
+                               ? static_cast<double>(now - last) / intervalSeconds
+                               : 0.0;
+        last = now;
+        return per;
     };
 
-    const uint64_t jacketCalls = g_jacketCalls.load(std::memory_order_relaxed);
-    if (jacketCalls != 0)
+    const double demoRate = rate(demo, lastDemo);
+    const double demoGatedRate = rate(demoGated, lastDemoGated);
+    const double jacketRate = rate(jacket, lastJacket);
+
+    if (demo != 0)
     {
-        logging::Info("timing: direct-jacket called {} times, instance sizes seen: {}", jacketCalls,
-                      formatSeen(g_seenJacketPoints, std::size(g_seenJacketPoints)));
+        // "ran" is the rate that actually advances the cutscene. Anything driven
+        // by cutscene animation should be moving at this rate, not the frame rate.
+        logging::Info("survey: cutscene ran {:.0f}/s (gated {:.0f}/s)", demoRate - demoGatedRate,
+                      demoGatedRate);
+    }
+
+    if (jacket != 0)
+    {
+        std::string sizes;
+        for (const auto& slot : g_seenJacketPoints)
+        {
+            const uint32_t value = slot.load(std::memory_order_relaxed);
+            if (value == 0)
+                break;
+            if (!sizes.empty())
+                sizes += ", ";
+            sizes += std::to_string(value);
+        }
+        logging::Info("survey: direct jacket {:.0f}/s, instance sizes: {}", jacketRate,
+                      sizes.empty() ? "none" : sizes);
     }
 }
 

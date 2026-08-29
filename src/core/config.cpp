@@ -55,6 +55,10 @@ ClothMode = delta
 ; instead of draping.
 HairFixedStep = true
 
+; Which hair instance gets the fixed step, identified by its chain count. Only
+; one instance needs it; the log reports every chain count it sees.
+HairFixedStepChainCount = 17
+
 ; On frames where the cloth solver is gated, re-publish the last simulated
 ; transform. Try flipping this to false if cloth shows a doubled or ghosted
 ; overlay.
@@ -63,6 +67,10 @@ ClothPublishOnSkip = true
 ; Observation-only hooks on the remaining cloth solvers. Reports which garment
 ; instances each one handles, to identify which solver drives what.
 ClothDiagnostics = true
+
+; How often to write the survey line, in seconds. The survey reports each
+; simulation system's rate, which is how a misbehaving scene is diagnosed.
+SurveyIntervalSeconds = 5
 
 ; Writes the decrypted .text/.rdata/.data to dump/ after the DRM stub runs.
 ; Only needed when developing new signatures; costs ~30 MB per launch.
@@ -225,6 +233,11 @@ void config::Load(const std::filesystem::path& file)
             if (!ParseBool(value, g_settings.hairFixedStep))
                 logging::Warn("config: HairFixedStep is not a boolean: '{}'", value);
         }
+        else if (key == "HairFixedStepChainCount")
+        {
+            if (!ParseInt(value, g_settings.hairFixedStepChainCount))
+                logging::Warn("config: HairFixedStepChainCount is not a number: '{}'", value);
+        }
         else if (key == "GateCloth")
         {
             if (!ParseBool(value, g_settings.gateCloth))
@@ -239,6 +252,14 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.clothDiagnostics))
                 logging::Warn("config: ClothDiagnostics is not a boolean: '{}'", value);
+        }
+        else if (key == "SurveyIntervalSeconds")
+        {
+            int parsed = 0;
+            if (ParseInt(value, parsed) && parsed >= 1)
+                g_settings.surveyIntervalSeconds = static_cast<unsigned>(parsed);
+            else
+                logging::Warn("config: SurveyIntervalSeconds must be 1 or more: '{}'", value);
         }
         else if (key == "DumpSections")
         {

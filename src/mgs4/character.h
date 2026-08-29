@@ -13,5 +13,5 @@ namespace mgs4
     // Takes the frame timing struct the cutscene fix already resolves.
     bool InstallCharacterTiming(const void* frameTimingStruct);
 
-    void LogCharacterCounters();
+    void LogCharacterCounters(double intervalSeconds);
 } // namespace mgs4

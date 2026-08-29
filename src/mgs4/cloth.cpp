@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <string>
 
 #include <safetyhook.hpp>
 
@@ -119,7 +120,7 @@ namespace
     std::atomic<uint64_t> g_producerGated{0};
     std::atomic<uint64_t> g_stepsSubstituted{0};
     std::atomic<uint64_t> g_hairCalls{0};
-    std::atomic<uint32_t> g_hairChainCount{0};
+    std::atomic<uint32_t> g_seenChainCounts[8]{};
     std::atomic<bool> g_deltaChecked{false};
 
     // Checked on first use rather than at install time. At install the game has
@@ -187,6 +188,24 @@ namespace
         return 1;
     }
 
+    // Records a chain count if it has not been seen before, so the log shows
+    // every distinct hair instance in play rather than only the most recent.
+    void RecordChainCount(uint32_t value)
+    {
+        if (value == 0)
+            return;
+
+        for (auto& slot : g_seenChainCounts)
+        {
+            uint32_t existing = slot.load(std::memory_order_relaxed);
+            if (existing == value)
+                return;
+            if (existing == 0 &&
+                slot.compare_exchange_strong(existing, value, std::memory_order_relaxed))
+                return;
+        }
+    }
+
     void __fastcall HairSimulationUpdateHook(uint8_t* hair)
     {
         g_hairCalls.fetch_add(1, std::memory_order_relaxed);
@@ -195,8 +214,14 @@ namespace
         if (hair)
         {
             const uint32_t chains = *reinterpret_cast<uint32_t*>(hair + kHairChainCountOffset);
-            g_hairChainCount.store(chains, std::memory_order_relaxed);
-            t_inHair = true;
+            RecordChainCount(chains);
+
+            // Only the one instance that needs the fixed step gets it. Applying
+            // it to every hair instance puts the others on a 60 Hz clock while
+            // the rest of the frame runs at the real rate, and they visibly come
+            // apart. Other characters' hair and jewellery are separate instances
+            // with their own chain counts and are left on the normal path.
+            t_inHair = chains == static_cast<uint32_t>(config::Get().hairFixedStepChainCount);
         }
 
         g_hairSimulationUpdate.unsafe_call(hair);
@@ -318,22 +343,56 @@ bool mgs4::InstallClothTiming(const void* frameTimingStruct, const void* frameTi
     return true;
 }
 
-void mgs4::LogClothCounters()
+void mgs4::LogClothCounters(double intervalSeconds)
 {
-    const uint64_t calls = g_producerCalls.load(std::memory_order_relaxed);
-    if (calls == 0)
+    // Rates, not running totals. What matters when diagnosing a scene is how
+    // often each system ran per second, because a system that disagrees with
+    // the frame rate is the one out of step with everything else.
+    static uint64_t lastProducer = 0, lastGated = 0, lastHair = 0, lastSubstituted = 0;
+
+    const uint64_t producer = g_producerCalls.load(std::memory_order_relaxed);
+    const uint64_t gated = g_producerGated.load(std::memory_order_relaxed);
+    const uint64_t hair = g_hairCalls.load(std::memory_order_relaxed);
+    const uint64_t substituted = g_stepsSubstituted.load(std::memory_order_relaxed);
+
+    const auto rate = [intervalSeconds](uint64_t now, uint64_t& last) {
+        const double per = intervalSeconds > 0.0
+                               ? static_cast<double>(now - last) / intervalSeconds
+                               : 0.0;
+        last = now;
+        return per;
+    };
+
+    const double producerRate = rate(producer, lastProducer);
+    const double gatedRate = rate(gated, lastGated);
+    const double hairRate = rate(hair, lastHair);
+    const double substitutedRate = rate(substituted, lastSubstituted);
+
+    const float delta = g_frameDeltaSeconds ? *g_frameDeltaSeconds : 0.0f;
+    const double fps = delta > 0.0f ? 1.0 / delta : 0.0;
+
+    if (producer == 0 && hair == 0)
         return;
 
-    const uint64_t gated = g_producerGated.load(std::memory_order_relaxed);
-    logging::Info("cloth: producer called {} times, {} gated ({:.1f}%), {} task steps substituted",
-                  calls, gated, 100.0 * static_cast<double>(gated) / static_cast<double>(calls),
-                  g_stepsSubstituted.load(std::memory_order_relaxed));
+    logging::Info("survey: frame {:.0f}/s | cloth {:.0f}/s (gated {:.0f}/s) | hair {:.0f}/s | "
+                  "task steps substituted {:.0f}/s",
+                  fps, producerRate, gatedRate, hairRate, substitutedRate);
 
-    const uint64_t hair = g_hairCalls.load(std::memory_order_relaxed);
-    if (hair != 0)
+    std::string counts;
+    for (const auto& slot : g_seenChainCounts)
     {
-        logging::Info("cloth: hair solver called {} times, chain count {}, fixed step {}", hair,
-                      g_hairChainCount.load(std::memory_order_relaxed),
-                      config::Get().hairFixedStep ? "on" : "off");
+        const uint32_t value = slot.load(std::memory_order_relaxed);
+        if (value == 0)
+            break;
+        if (!counts.empty())
+            counts += ", ";
+        counts += std::to_string(value);
+    }
+    if (!counts.empty())
+    {
+        logging::Info("survey: hair chain counts present: {} (fixed step applied to {})", counts,
+                      config::Get().hairFixedStep
+                          ? std::to_string(config::Get().hairFixedStepChainCount)
+                          : std::string("none"));
     }
 }

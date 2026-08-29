@@ -183,14 +183,19 @@ namespace
             if (target > 0 && settings.patchPicker)
                 mgs4::ReassertTargetFramerate(target);
 
-            if (tick % 30 == 0)
+            // Reported as rates over the interval rather than running totals.
+            // A system whose rate does not match the frame rate is the one out
+            // of step, and that is what identifies a timing problem in a scene.
+            if (tick % settings.surveyIntervalSeconds == 0)
             {
-                mgs4::LogTimingCounters();
-                mgs4::LogClothCounters();
-                mgs4::LogCharacterCounters();
-                if (settings.patchPicker)
-                    mgs4::ReassertFrameratePicker();
+                const double interval = static_cast<double>(settings.surveyIntervalSeconds);
+                mgs4::LogCharacterCounters(interval);
+                mgs4::LogTimingCounters(interval);
+                mgs4::LogClothCounters(interval);
             }
+
+            if (tick % 30 == 0 && settings.patchPicker)
+                mgs4::ReassertFrameratePicker();
         }
     }
 } // namespace

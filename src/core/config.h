@@ -72,6 +72,12 @@ namespace config
         // their stiffness, so the chain never settles.
         bool hairFixedStep = true;
 
+        // Which hair instance gets the fixed step, identified by its chain
+        // count. Only one instance needs it. Applying it to every instance puts
+        // the rest on a 60 Hz clock while the frame runs at the real rate, and
+        // other characters' hair and jewellery visibly come apart.
+        int hairFixedStepChainCount = 17;
+
         // On frames where the cloth solver is gated, re-publish the transform
         // the last simulated frame produced. Intended to keep the renderer from
         // drawing stale data, but it is also the remaining suspect for the
@@ -81,6 +87,12 @@ namespace config
         // Observation-only hooks on the remaining cloth solvers, reporting
         // which instances each one handles. Costs nothing but a counter.
         bool clothDiagnostics = true;
+
+        // How often to write the survey line, in seconds. The survey reports
+        // each simulation system's rate, which is how a scene with a timing
+        // problem is diagnosed: whichever system is not running at the frame
+        // rate, or not at the rate of whatever drives it, is the odd one out.
+        unsigned surveyIntervalSeconds = 5;
 
         // Writes the decrypted sections to disk once the DRM stub has run, for
         // offline analysis. Off by default: it costs ~30 MB per launch.

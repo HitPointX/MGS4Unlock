@@ -16,7 +16,7 @@ namespace mgs4
 
     // Reports how often the cutscene update ran versus was gated out. At 120 fps
     // roughly half of the calls should be gated; at 60 fps, none.
-    void LogTimingCounters();
+    void LogTimingCounters(double intervalSeconds);
 
     // The frame timing globals resolved by the cutscene fix, so other fixes can
     // reuse them instead of resolving the same struct again. Null until

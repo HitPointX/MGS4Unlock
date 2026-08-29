@@ -14,5 +14,5 @@ namespace mgs4
     // than resolving them again.
     bool InstallClothTiming(const void* frameTimingStruct, const void* frameTickDelta60);
 
-    void LogClothCounters();
+    void LogClothCounters(double intervalSeconds);
 } // namespace mgs4
