@@ -80,4 +80,4 @@ echo
 cat "dist/$NAME.sha256"
 echo
 echo ">> attach the archives to the $VERSION release at:"
-echo "   https://github.com/HitPointX/MGS4FPSUnlocker/releases/new"
+echo "   https://github.com/HitPointX/MGS4Unlock/releases/new"
