@@ -129,6 +129,25 @@ namespace
 
     std::atomic<uint64_t> g_jacketGated{0};
 
+    // Offsets taken from the solver itself, which reads a pointer at +0x98 and
+    // copies four sixteen-byte rows from it into +0x4b0 onwards. Replicated
+    // here so a gated frame still publishes a current transform.
+    constexpr ptrdiff_t kJacketTransformSourcePointer = 0x98;
+    constexpr ptrdiff_t kJacketTransformDestination = 0x4B0;
+    constexpr size_t kJacketTransformBytes = 0x40;
+
+    void PublishJacketTransform(uint8_t* jacket)
+    {
+        if (!jacket)
+            return;
+
+        auto* source = *reinterpret_cast<uint8_t**>(jacket + kJacketTransformSourcePointer);
+        if (!source)
+            return;
+
+        std::memcpy(jacket + kJacketTransformDestination, source, kJacketTransformBytes);
+    }
+
     void __fastcall DirectJacketUpdateHook(uint8_t* jacket, uint8_t* context)
     {
         g_jacketCalls.fetch_add(1, std::memory_order_relaxed);
@@ -143,9 +162,18 @@ namespace
         // so during a cutscene it has to advance at the rate the animation moves
         // those bones rather than at the frame rate. Left alone it takes four
         // steps against a motionless body at 240 fps and then lurches.
+        //
+        // Returning early is not enough on its own. Near the end of the solve
+        // the function copies a transform out of the object at +0x98 into a
+        // published slot at +0x4b0, four sixteen-byte rows of a matrix, and the
+        // renderer reads that slot. Skipping the whole call skips the copy too,
+        // so the renderer keeps drawing an older transform and the jacket
+        // appears doubled. Publishing it ourselves on a gated frame keeps what
+        // is drawn current while the solve itself is skipped.
         if (config::Get().clothFollowsCutscene && mgs4::IsCutsceneAdvancing() && !IsNativeTick())
         {
             g_jacketGated.fetch_add(1, std::memory_order_relaxed);
+            PublishJacketTransform(jacket);
             return;
         }
 
