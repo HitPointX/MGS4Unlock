@@ -66,6 +66,14 @@ namespace config
         };
         ClothMode clothMode = ClothMode::Delta;
 
+        // While a cutscene is playing, run cloth at the cutscene's rate rather
+        // than the frame rate. Cutscene playback is gated to 60 Hz, so the
+        // animation moving a garment's anchor points advances at 60 Hz while
+        // cloth simulated at the frame rate takes several steps against anchors
+        // that have not moved. That is what makes garments flap and ripple in
+        // cutscenes while behaving correctly in gameplay.
+        bool clothFollowsCutscene = true;
+
         // Give the hair solver a fixed step near 1/60 instead of the real frame
         // delta. Snake's bandana floats up off his head without this, because
         // gravity scales down with the step while the chain constraints keep

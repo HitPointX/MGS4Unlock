@@ -13,6 +13,7 @@
 #include "core/log.h"
 #include "core/memory.h"
 #include "core/module.h"
+#include "mgs4/timing.h"
 
 // Cloth timing.
 //
@@ -206,9 +207,21 @@ namespace
         }
     }
 
+    std::atomic<uint64_t> g_hairGated{0};
+
     void __fastcall HairSimulationUpdateHook(uint8_t* hair)
     {
         g_hairCalls.fetch_add(1, std::memory_order_relaxed);
+
+        // Hair hangs off animated bones exactly as cloth does, so during a
+        // cutscene it has to advance at the rate the animation moves them.
+        // Otherwise it takes several steps against a motionless head and then
+        // lurches, which reads as exaggerated, floaty hair.
+        if (config::Get().clothFollowsCutscene && mgs4::IsCutsceneAdvancing() && !IsNativeTick())
+        {
+            g_hairGated.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
 
         const bool previous = t_inHair;
         if (hair)
@@ -241,6 +254,36 @@ namespace
                                             int32_t updateType)
     {
         g_producerCalls.fetch_add(1, std::memory_order_relaxed);
+
+        // Cloth has to advance at the rate of whatever moves its anchor points,
+        // not at the frame rate. During a cutscene the animation driving those
+        // anchors is gated to 60 Hz, so simulating cloth at the full frame rate
+        // takes several steps against anchors that have not moved and then
+        // lurches when they jump. That is visible as garments flapping and
+        // rippling in cutscenes while behaving correctly in gameplay.
+        //
+        // Gating cloth here is not the same mistake as gating it in gameplay.
+        // There it put cloth out of step with everything around it; here it puts
+        // cloth in step with the only thing that actually drives it.
+        const bool followCutscene =
+            config::Get().clothFollowsCutscene && mgs4::IsCutsceneAdvancing();
+
+        if (followCutscene)
+        {
+            if (!IsNativeTick())
+            {
+                g_producerGated.fetch_add(1, std::memory_order_relaxed);
+                if (producer && g_clothTransformPublish)
+                    g_clothTransformPublish(producer);
+                return;
+            }
+
+            const bool previous = t_inClothProducer;
+            t_inClothProducer = true;
+            g_clothProducerUpdate.unsafe_call(producer, updateArgument, updateType);
+            t_inClothProducer = previous;
+            return;
+        }
 
         // Delta mode never skips: the solver runs every frame and the shared
         // task timing hook feeds it the real frame delta.
@@ -365,7 +408,9 @@ void mgs4::LogClothCounters(double intervalSeconds)
 
     const double producerRate = rate(producer, lastProducer);
     const double gatedRate = rate(gated, lastGated);
+    static uint64_t lastHairGated = 0;
     const double hairRate = rate(hair, lastHair);
+    const double hairGatedRate = rate(g_hairGated.load(std::memory_order_relaxed), lastHairGated);
     const double substitutedRate = rate(substituted, lastSubstituted);
 
     const float delta = g_frameDeltaSeconds ? *g_frameDeltaSeconds : 0.0f;
@@ -374,9 +419,10 @@ void mgs4::LogClothCounters(double intervalSeconds)
     if (producer == 0 && hair == 0)
         return;
 
-    logging::Info("survey: frame {:.0f}/s | cloth {:.0f}/s (gated {:.0f}/s) | hair {:.0f}/s | "
-                  "task steps substituted {:.0f}/s",
-                  fps, producerRate, gatedRate, hairRate, substitutedRate);
+    logging::Info("survey: frame {:.0f}/s | cloth {:.0f}/s (gated {:.0f}/s) | "
+                  "hair {:.0f}/s (gated {:.0f}/s) | task steps substituted {:.0f}/s",
+                  fps, producerRate - gatedRate, gatedRate, hairRate - hairGatedRate,
+                  hairGatedRate, substitutedRate);
 
     std::string counts;
     for (const auto& slot : g_seenChainCounts)

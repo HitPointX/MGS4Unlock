@@ -18,6 +18,11 @@ namespace mgs4
     // roughly half of the calls should be gated; at 60 fps, none.
     void LogTimingCounters(double intervalSeconds);
 
+    // True while cutscene playback is actively advancing. Cutscenes are gated
+    // to 60 Hz, so anything anchored to cutscene animation has to run at that
+    // rate too rather than at the frame rate.
+    bool IsCutsceneAdvancing();
+
     // The frame timing globals resolved by the cutscene fix, so other fixes can
     // reuse them instead of resolving the same struct again. Null until
     // InstallCutsceneTimingFix has succeeded.

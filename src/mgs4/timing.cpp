@@ -62,6 +62,14 @@ namespace
     std::atomic<uint64_t> g_demoCalls{0};
     std::atomic<uint64_t> g_demoSkipped{0};
 
+    // Set whenever the cutscene system actually advances, cleared by the frame
+    // update. Cloth uses this to decide what rate to run at: during a cutscene
+    // the animation that moves a garment's anchor points advances at 60 Hz, so
+    // cloth simulated at the full frame rate takes several steps against
+    // anchors that have not moved and then lurches when they do.
+    std::atomic<bool> g_cutsceneAdvancing{false};
+    std::atomic<uint64_t> g_lastDemoRunTick{0};
+
     // True on frames where the engine's 60 Hz clock actually advanced. Anything
     // gated on this runs at its native rate no matter how fast we render.
     bool IsNativeTick()
@@ -92,9 +100,15 @@ namespace
         g_demoCalls.fetch_add(1, std::memory_order_relaxed);
 
         if (IsNativeTick())
+        {
+            g_lastDemoRunTick.store(::GetTickCount64(), std::memory_order_relaxed);
+            g_cutsceneAdvancing.store(true, std::memory_order_relaxed);
             g_polygonDemoUpdate.unsafe_call(demo);
+        }
         else
+        {
             g_demoSkipped.fetch_add(1, std::memory_order_relaxed);
+        }
     }
 
     // Observation only. MGS4 runs several independent cloth solvers and which
@@ -113,6 +127,8 @@ namespace
     std::atomic<uint64_t> g_jacketCalls{0};
     std::atomic<uint32_t> g_seenJacketPoints[8]{};
 
+    std::atomic<uint64_t> g_jacketGated{0};
+
     void __fastcall DirectJacketUpdateHook(uint8_t* jacket, uint8_t* context)
     {
         g_jacketCalls.fetch_add(1, std::memory_order_relaxed);
@@ -121,6 +137,18 @@ namespace
             RecordDistinct(g_seenJacketPoints, std::size(g_seenJacketPoints),
                            *reinterpret_cast<uint16_t*>(jacket + kJacketPointCountOffset));
         }
+
+        // Snake's jacket runs on its own solver, separate from both the cloth
+        // producer and the hair chains. Like them it hangs off animated bones,
+        // so during a cutscene it has to advance at the rate the animation moves
+        // those bones rather than at the frame rate. Left alone it takes four
+        // steps against a motionless body at 240 fps and then lurches.
+        if (config::Get().clothFollowsCutscene && mgs4::IsCutsceneAdvancing() && !IsNativeTick())
+        {
+            g_jacketGated.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+
         g_directJacketUpdate.unsafe_call(jacket, context);
     }
 } // namespace
@@ -246,9 +274,32 @@ void mgs4::LogTimingCounters(double intervalSeconds)
                 sizes += ", ";
             sizes += std::to_string(value);
         }
-        logging::Info("survey: direct jacket {:.0f}/s, instance sizes: {}", jacketRate,
+        static uint64_t lastJacketGated = 0;
+        const double jacketGatedRate = rate(g_jacketGated.load(std::memory_order_relaxed),
+                                            lastJacketGated);
+        logging::Info("survey: direct jacket {:.0f}/s (gated {:.0f}/s), instance sizes: {}",
+                      jacketRate - jacketGatedRate, jacketGatedRate,
                       sizes.empty() ? "none" : sizes);
     }
+}
+
+bool mgs4::IsCutsceneAdvancing()
+{
+    if (!g_cutsceneAdvancing.load(std::memory_order_relaxed))
+        return false;
+
+    // The flag is sticky, so it needs a timeout or it would stay set for the
+    // rest of the session once a cutscene had played. A cutscene that is
+    // running updates far more often than this.
+    constexpr uint64_t kStaleAfterMs = 250;
+    const uint64_t last = g_lastDemoRunTick.load(std::memory_order_relaxed);
+    if (::GetTickCount64() - last > kStaleAfterMs)
+    {
+        g_cutsceneAdvancing.store(false, std::memory_order_relaxed);
+        return false;
+    }
+
+    return true;
 }
 
 const void* mgs4::FrameTimingStruct()

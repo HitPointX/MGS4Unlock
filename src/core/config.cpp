@@ -50,6 +50,11 @@ GateCloth = true
 ; comparison.
 ClothMode = delta
 
+; While a cutscene is playing, run cloth at the cutscene's rate instead of the
+; frame rate. Without this, garments flap and ripple in cutscenes because the
+; animation moving them advances at 60 Hz while the cloth simulates faster.
+ClothFollowsCutscene = true
+
 ; Give the hair solver a fixed step near 1/60 rather than the real frame time.
 ; Without this, Snake's bandana floats above his head at high framerates
 ; instead of draping.
@@ -227,6 +232,11 @@ void config::Load(const std::filesystem::path& file)
                 g_settings.clothMode = Settings::ClothMode::Delta;
             else
                 logging::Warn("config: ClothMode must be gate or delta: '{}'", value);
+        }
+        else if (key == "ClothFollowsCutscene")
+        {
+            if (!ParseBool(value, g_settings.clothFollowsCutscene))
+                logging::Warn("config: ClothFollowsCutscene is not a boolean: '{}'", value);
         }
         else if (key == "HairFixedStep")
         {
