@@ -55,6 +55,11 @@ ClothMode = delta
 ; animation moving them advances at 60 Hz while the cloth simulates faster.
 ClothFollowsCutscene = true
 
+; Gate the jacket solver to the cutscene rate and give the frames that run a
+; fixed 1/60 step. Without the fixed step the jacket trails the pose and looks
+; doubled.
+GateJacket = true
+
 ; Give the hair solver a fixed step near 1/60 rather than the real frame time.
 ; Without this, Snake's bandana floats above his head at high framerates
 ; instead of draping.
@@ -237,6 +242,11 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.clothFollowsCutscene))
                 logging::Warn("config: ClothFollowsCutscene is not a boolean: '{}'", value);
+        }
+        else if (key == "GateJacket")
+        {
+            if (!ParseBool(value, g_settings.gateJacket))
+                logging::Warn("config: GateJacket is not a boolean: '{}'", value);
         }
         else if (key == "HairFixedStep")
         {

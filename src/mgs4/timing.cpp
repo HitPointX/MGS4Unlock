@@ -129,24 +129,15 @@ namespace
 
     std::atomic<uint64_t> g_jacketGated{0};
 
-    // Offsets taken from the solver itself, which reads a pointer at +0x98 and
-    // copies four sixteen-byte rows from it into +0x4b0 onwards. Replicated
-    // here so a gated frame still publishes a current transform.
-    constexpr ptrdiff_t kJacketTransformSourcePointer = 0x98;
-    constexpr ptrdiff_t kJacketTransformDestination = 0x4B0;
-    constexpr size_t kJacketTransformBytes = 0x40;
+    // The solver takes its timestep from the context, using it as both a
+    // divisor and a multiplier.
+    constexpr ptrdiff_t kJacketContextDelta = 0x30;
+    constexpr ptrdiff_t kJacketContextReciprocalDelta = 0x34;
 
-    void PublishJacketTransform(uint8_t* jacket)
-    {
-        if (!jacket)
-            return;
+    // Frame delta, read from the same timing struct the cutscene fix resolves.
+    constexpr ptrdiff_t kFrameDeltaOffset = 0x18;
+    const float* g_frameDeltaSeconds = nullptr;
 
-        auto* source = *reinterpret_cast<uint8_t**>(jacket + kJacketTransformSourcePointer);
-        if (!source)
-            return;
-
-        std::memcpy(jacket + kJacketTransformDestination, source, kJacketTransformBytes);
-    }
 
     void __fastcall DirectJacketUpdateHook(uint8_t* jacket, uint8_t* context)
     {
@@ -157,27 +148,47 @@ namespace
                            *reinterpret_cast<uint16_t*>(jacket + kJacketPointCountOffset));
         }
 
-        // Snake's jacket runs on its own solver, separate from both the cloth
-        // producer and the hair chains. Like them it hangs off animated bones,
-        // so during a cutscene it has to advance at the rate the animation moves
-        // those bones rather than at the frame rate. Left alone it takes four
-        // steps against a motionless body at 240 fps and then lurches.
+        // The caller hands this solver a fixed step of roughly 1/60 on every
+        // call, not a per-frame delta. At 60 fps that is exactly right. At 240
+        // it means four full 60 Hz steps of motion per 60 Hz of real time, which
+        // is the jacket swaying about four times too fast.
         //
-        // Returning early is not enough on its own. Near the end of the solve
-        // the function copies a transform out of the object at +0x98 into a
-        // published slot at +0x4b0, four sixteen-byte rows of a matrix, and the
-        // renderer reads that slot. Skipping the whole call skips the copy too,
-        // so the renderer keeps drawing an older transform and the jacket
-        // appears doubled. Publishing it ourselves on a gated frame keeps what
-        // is drawn current while the solve itself is skipped.
-        if (config::Get().clothFollowsCutscene && mgs4::IsCutsceneAdvancing() && !IsNativeTick())
+        // Skipping calls to compensate does not work: the renderer then shows a
+        // stale pose alongside the current one, which reads as a doubled,
+        // semi-transparent jacket. That is the same lesson the cloth solver
+        // taught, and the answer is the same. Never skip a call; correct the
+        // step instead, so each call advances only the time that has actually
+        // passed.
+        if (!config::Get().gateJacket || !context || !g_frameDeltaSeconds)
         {
-            g_jacketGated.fetch_add(1, std::memory_order_relaxed);
-            PublishJacketTransform(jacket);
+            g_directJacketUpdate.unsafe_call(jacket, context);
             return;
         }
 
+        const float frameDelta = *g_frameDeltaSeconds;
+        if (!(frameDelta > 0.0f) || frameDelta > 0.2f)
+        {
+            g_directJacketUpdate.unsafe_call(jacket, context);
+            return;
+        }
+
+        auto* delta = reinterpret_cast<float*>(context + kJacketContextDelta);
+        auto* reciprocal = reinterpret_cast<float*>(context + kJacketContextReciprocalDelta);
+        const float savedDelta = *delta;
+        const float savedReciprocal = *reciprocal;
+
+        // Only shorten the step. If the caller is already passing something at
+        // or below the real frame time, leave it alone.
+        if (frameDelta < savedDelta)
+        {
+            *delta = frameDelta;
+            *reciprocal = 1.0f / frameDelta;
+            g_jacketGated.fetch_add(1, std::memory_order_relaxed);
+        }
+
         g_directJacketUpdate.unsafe_call(jacket, context);
+        *delta = savedDelta;
+        *reciprocal = savedReciprocal;
     }
 } // namespace
 
@@ -209,6 +220,7 @@ bool mgs4::InstallCutsceneTimingFix()
     uint8_t* timing = memory::ResolveRipRelative(lea + kTimeDeltaDispOffset,
                                                  lea + kTimeDeltaLeaLength);
     g_frameTimingStruct = timing;
+    g_frameDeltaSeconds = reinterpret_cast<const float*>(timing + kFrameDeltaOffset);
     g_frameTickDelta60 = reinterpret_cast<const int32_t*>(timing + kTickDelta60Offset);
 
     logging::Address("frameTimingStruct", reinterpret_cast<uintptr_t>(timing));

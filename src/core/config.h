@@ -74,6 +74,13 @@ namespace config
         // cutscenes while behaving correctly in gameplay.
         bool clothFollowsCutscene = true;
 
+        // Gate the jacket solver to the cutscene rate, and give the frames that
+        // do run a fixed 1/60 step. Both halves are needed: gating alone leaves
+        // the solver receiving the caller's per-frame delta, so it advances a
+        // quarter of the time the body moved and trails the pose, which looks
+        // like a doubled jacket.
+        bool gateJacket = true;
+
         // Give the hair solver a fixed step near 1/60 instead of the real frame
         // delta. Snake's bandana floats up off his head without this, because
         // gravity scales down with the step while the chain constraints keep
