@@ -6,7 +6,7 @@ The game ships with a "Max Frame Rate" setting offering 30, 40 and 60. This mod
 replaces that list with 30, 60, 120 and 240, makes the choice stick, and
 corrects the engine systems that do not scale correctly above 60.
 
-Current version: **0.7d** (beta)
+Current version: **0.8b** (beta)
 
 ## Status
 
@@ -20,7 +20,10 @@ Current version: **0.7d** (beta)
 | Gameplay, animation and audio | Correct at 120 and 240 |
 | Character movement and animation speed | Corrected, verified at 240 |
 | Cutscene playback | Corrected, verified in game |
-| Cloth, including the headdress and scarf | Corrected, verified at 120 and 240 |
+| Cloth in gameplay | Corrected, verified at 120 and 240 |
+| Cloth in cutscenes | Corrected, verified at 240 |
+| Coats and jackets, Snake and NPCs | Corrected, verified at 240 |
+| Hair, chains and small accessories | Corrected, verified at 240 |
 | Snake's bandana | Corrected, verified at 120 and 240 |
 | Stability | No crash seen in normal gameplay, testing ongoing |
 
@@ -63,9 +66,9 @@ Without it the mod loads nothing and the log file will not appear.
 `logs/MGS4Unlock.log` should open with something like:
 
 ```
-[I] MGS4Unlock v0.6a loaded, impersonating dbghelp.dll
+[I] MGS4Unlock v0.8b loaded, impersonating dbghelp.dll
 [I] proxy: forwarding to C:\windows\system32\dbghelp.dll (9 exports resolved, 0 missing)
-[I] picker: options are now {30, 60, 120}
+[I] picker: extended the menu from 3 to 4 options
 [I] timing: cutscene playback gated to its native 60 Hz tick
 ```
 
@@ -75,10 +78,18 @@ Without it the mod loads nothing and the log file will not appear.
 
 ```ini
 [Settings]
-; The three rates the in-game picker should offer, replacing the stock
-; 30, 40, 60. The menu formats its labels from these numbers, so this is
-; literally what you will see. Keep them ascending so the menu reads in order.
-PickerValues = 30, 60, 120
+; The rates the in-game picker should offer, replacing the stock 30, 40, 60.
+; The menu formats its labels from these numbers, so this is literally what you
+; will see. Three or more are supported (up to 8); they are sorted for you.
+;
+; Note that 240 relies on the engine's 300 Hz character tick, which allows 1.25
+; ticks per frame. Above 300 fps that drops below one tick per frame and the
+; timing model breaks down, so do not go higher.
+PickerValues = 30, 60, 120, 240
+
+; Framerate handed to the engine at startup. 0 follows the choice you made in
+; the in-game menu. Set a number here to force it regardless of the menu.
+TargetFramerate = 0
 
 ; Set to false to leave the picker untouched.
 PatchPicker = true
@@ -87,8 +98,60 @@ PatchPicker = true
 ; cutscenes run at double speed above 60 fps.
 GateCutscenes = true
 
+; Corrects character movement and animation speed above 60 fps. Without this,
+; animation runs slow, slightly at 120 and noticeably at 240.
+FixCharacterTiming = true
+
+; Corrects cloth timing above 60 fps. Without this, cloth sways at double speed
+; at 120 and four times at 240.
+GateCloth = true
+
+; How cloth is kept at the right rate.
+;   delta - simulate every frame using the real frame time (default, correct)
+;   gate  - run the solver only on native 60 Hz frames
+; Gating produces a doubled, ghosted copy of the cloth here and is kept only for
+; comparison.
+ClothMode = delta
+
+; While a cutscene is playing, run cloth at the cutscene's rate instead of the
+; frame rate. Without this, garments flap and ripple in cutscenes because the
+; animation moving them advances at 60 Hz while the cloth simulates faster.
+ClothFollowsCutscene = true
+
+; Substitute the real frame delta into the engine's shared simulation task
+; timing. Off by default: it applies one correction to every simulation task in
+; the game, and was found to be the cause of Snake's coat, the NPC coats and
+; Meryl's earring misbehaving above 60 fps.
+SubstituteTaskTiming = false
+
+; Leave the jacket solver's stepping to the engine instead of letting the
+; shared task timing correction alter it.
+ExcludeJacketFromTaskTiming = true
+
+; Give the hair solver a fixed step near 1/60 rather than the real frame time.
+; Without this, Snake's bandana floats above his head at high framerates
+; instead of draping.
+HairFixedStep = true
+
+; Which hair instance gets the fixed step, identified by its chain count. Only
+; one instance needs it; the log reports every chain count it sees.
+HairFixedStepChainCount = 17
+
+; On frames where the cloth solver is gated, re-publish the last simulated
+; transform. Try flipping this to false if cloth shows a doubled or ghosted
+; overlay.
+ClothPublishOnSkip = true
+
+; Observation-only hooks on the remaining cloth solvers. Reports which garment
+; instances each one handles, to identify which solver drives what.
+ClothDiagnostics = true
+
+; How often to write the survey line, in seconds. The survey reports each
+; simulation system's rate, which is how a misbehaving scene is diagnosed.
+SurveyIntervalSeconds = 5
+
 ; Writes the decrypted .text/.rdata/.data to dump/ after the DRM stub runs.
-; Only needed when developing new signatures; costs about 30 MB per launch.
+; Only needed when developing new signatures; costs ~30 MB per launch.
 DumpSections = false
 
 ; Milliseconds to wait for the Steam DRM stub to decrypt .text before giving up.
@@ -137,42 +200,77 @@ read back to confirm it took.
 
 Most of the game scales on its own. Gameplay, audio and general animation are
 driven from a real frame delta and behave correctly at 120 and 240 with no
-intervention. Four systems do not, and each needs different treatment.
+intervention. What does not scale falls into two categories, and the difference
+between them is worth stating because it explains every fix here.
 
-**Character control** advances in whole ticks of a 300 Hz counter. 300 divides
+**Systems running at a rate that does not match whatever moves them.**
+
+*Character control* advances in whole ticks of a 300 Hz counter. 300 divides
 evenly by 60, so the framerate the game shipped with loses nothing, but 120
 gives 2.5 ticks per frame and 240 gives 1.25, and the fractional part was
 discarded every frame. Animation ran slow, subtly at 120 and at roughly four
 fifths speed at 240. The remainder is now carried between frames, so the counts
 stay whole while their long-run average matches elapsed time.
 
-**Cutscene playback** advances a whole 60 Hz tick per call, so above 60 it plays
-at double speed and then stalls to resynchronise against the audio. It is gated
-to run only on native 60 Hz ticks. The framerate is not capped; only that one
-system is rate-limited.
+*Cutscene playback* advances a whole 60 Hz tick per call, so above 60 it plays at
+double speed and stalls to resynchronise against the audio. It is gated to run
+only on native 60 Hz ticks. The framerate is not capped; only that system is
+rate limited.
 
-**Simulation task timing** is centralised. One function converts frame time into
-a step size and a substep count, and every simulation task consults it. It now
-receives the real frame delta rather than a step sized for 60 Hz.
+*Cloth in cutscenes* was the largest single cause of visible problems. Cutscene
+playback is gated to 60 Hz, so the animation moving a garment's anchor points
+advances 60 times a second, while cloth simulated at the frame rate takes four
+steps at 240 fps against anchors that have not moved and then lurches when they
+jump. Cloth now runs at the cutscene's rate while a cutscene is playing, and at
+the frame rate otherwise. That one change accounted for most of the reported
+flapping and rippling.
 
-**Cloth** is simulated every frame using that same real delta.
+*Snake's bandana* runs through a hair solver that is stiff and integrates gravity
+per step. Given a shorter step, gravity scales down while the chain constraints
+keep their stiffness, so the chain never settles and the bandana floats above his
+head. It gets a fixed step near 1/60 instead.
 
-**Snake's bandana** runs through a separate hair solver that is stiff and
-integrates gravity per step. Given a shorter step, gravity scales down while the
-chain constraints keep their stiffness, so the chain never settles and the
-bandana floats above his head. It gets a fixed step near 1/60 instead.
+**Corrections applied more widely than they should be.**
 
-That last one is worth explaining, because the intuitive approach is wrong.
-Gating cloth to 60 Hz, the way cutscenes are gated, does fix the sway rate, but
-it leaves a doubled, semi-transparent copy of the garment on screen. A garment
-whose solver runs on only half the frames ends up inconsistent with the parts of
-the pipeline that run on all of them, and no amount of adjusting what happens on
-the skipped frame changes that. Simulating every frame removes the skipped frame
-entirely. The solver is stiff and was tuned for a fixed step, but it tolerates a
-shorter step far better than it tolerates the mismatch.
+The engine schedules simulation work through one shared timing function. An
+early version of this mod fed it the real frame delta, which sounds right and is
+wrong: most solvers already receive a correct per-frame delta from their own
+callers, and adjusting it changed how they integrate without fixing anything.
+That single global correction turned out to be the cause of Snake's coat, the
+NPC coats and Meryl's earring all misbehaving above 60 fps. It is off by
+default, and kept only because a selective version, adjusting the tasks that
+want it rather than every task, may still have a use.
 
-The general rule: gating suits a system that owns its own timeline end to end,
-and breaks a system that is one stage of a per-frame pipeline.
+The same mistake in miniature: the bandana's fixed step was initially applied to
+every hair instance, which fixed the bandana and broke other characters' hair and
+jewellery. It now applies to one instance, matched by chain count.
+
+**The rule both categories point at.** A simulation must advance at the rate of
+whatever moves its inputs, and a correction belongs on the systems that need it
+rather than on everything. Gating suits a system that owns its own timeline end
+to end, such as cutscene playback, and breaks a system that is one stage of a
+per-frame pipeline, such as cloth in gameplay.
+
+### Diagnosing a scene
+
+Every simulation system reports its rate over a short interval, next to the
+measured frame rate:
+
+```
+survey: character 240/s, tick delta 1, remainder 0.250
+survey: cutscene ran 60/s (gated 180/s)
+survey: direct jacket 240/s (gated 0/s), instance sizes: 87
+survey: frame 240/s | cloth 120/s (gated 360/s) | hair 60/s (gated 180/s)
+survey: hair chain counts present: 7, 17 (fixed step applied to 17)
+```
+
+Whichever system is not running at the rate of whatever drives it is the one out
+of step. This is how the cutscene mismatch was found, and it is the fastest way
+to identify a garment that is misbehaving in a scene: the instance sizes and
+chain counts name which solver owns what, so a specific garment can be matched
+to the code that drives it rather than guessed at.
+
+Set `SurveyIntervalSeconds` to control how often it is written.
 
 ### Working with an encrypted executable
 
@@ -284,9 +382,16 @@ option table as a maximum framerate cap. That was wrong: it is a platform
 identifier used to select which per-platform config value to read. No cap stands
 in the way of 240.
 
-**Cutscenes animate at 60** while the game renders at the selected rate. The
-engine offers no interpolation between cutscene states, so this is inherent to
-gating that system.
+**Cutscenes animate at 60** while the game renders at the selected rate, and
+cloth in cutscenes animates at 60 with them. The engine offers no interpolation
+between cutscene states, so this is inherent to gating that system.
+
+**The headdress and scarf are unverified since 0.8b.** They were originally
+credited to the shared task timing correction, which is now off by default
+because it was causing several other problems. That credit was never isolated
+from the cloth changes that shipped alongside it, so those two garments may or
+may not still be correct. If they are not, the fix is a selective version of
+that correction rather than the global one.
 
 **Stability has had limited testing.** No crash has been seen in normal
 gameplay so far, across most of Act 1 and Act 2 at 120 and 240.

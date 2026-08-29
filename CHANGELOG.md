@@ -1,10 +1,60 @@
 # Changelog
 
 Versions run `0.1a` through `0.7a` in alpha, `0.7b` onward in beta, and `1.0r`
-at release. Each version covers a chunk of work rather than a single commit.
+at release. `0.8` covers physics work; `0.9` covers everything else. Each version covers a chunk of work rather than a single commit.
 
 All work targets game build `[Code]a84606af` (2026-08-25),
 `mgs4.exe` md5 `48e656dae7fb7e85ec162d25aa7a311f`.
+
+---
+
+## 0.8b, cutscene physics
+
+Physics work. Nearly every remaining problem turned out to be one of two
+things: something running at a different rate to whatever moves it, or a
+correction being applied more widely than it should have been.
+
+- Cloth now runs at the cutscene's rate while a cutscene is playing, and at the
+  frame rate otherwise. Cutscene playback is gated to 60 Hz, so the animation
+  moving a garment's anchor points advances at 60 Hz while cloth simulated at
+  the frame rate takes several steps against anchors that have not moved and
+  then lurches when they jump. That single cause accounted for most of the
+  reported problems: Sunny's clothes and apron, Naomi's coat, necklace and
+  hoodie laces, and the NPC coats at the start of Act 3.
+
+- The shared simulation task timing correction is now off by default. It applied
+  one adjustment to every simulation task in the game, and testing found it was
+  the cause of Snake's coat, the NPC coats and Meryl's earring behaving badly
+  above 60 fps. Those solvers already receive a correct per-frame delta from
+  their callers, confirmed by logging the jacket's step against the frame delta
+  and finding them identical.
+
+  It was originally credited with fixing the headdress and scarf, but it shipped
+  alongside the cloth producer changes and was never isolated from them, so that
+  credit is unproven. Kept behind a setting rather than removed: if something
+  does need it, the correct form is a selective version that adjusts only the
+  tasks that want it.
+
+- The hair fixed step now applies to one hair instance rather than all of them,
+  matched by chain count. Applying it to every instance fixed Snake's bandana
+  and broke other characters' hair and jewellery, which is the same mistake in
+  miniature: a correction one system needed being applied to systems that did
+  not.
+
+- Every simulation system now reports its rate over a short interval, alongside
+  the measured frame rate. A system running at a rate that does not match
+  whatever drives it is the one out of step, and that is not visible from
+  cumulative counters. This is what identified the cutscene mismatch, and what
+  showed the jacket solver had never once run in any scene tested before Act 3.
+
+- New settings: `ClothFollowsCutscene`, `SubstituteTaskTiming`,
+  `ExcludeJacketFromTaskTiming`, `HairFixedStepChainCount`,
+  `SurveyIntervalSeconds`.
+
+The recurring lesson, stated once because it came up in four separate places: a
+simulation must advance at the rate of whatever moves its inputs, and a
+correction should be applied to the systems that need it rather than to
+everything.
 
 ---
 
