@@ -116,6 +116,7 @@ namespace
     thread_local bool t_inClothManager = false;
     thread_local bool t_inClothProducer = false;
     thread_local bool t_inHair = false;
+    thread_local bool t_inJacket = false;
 
     std::atomic<uint64_t> g_producerCalls{0};
     std::atomic<uint64_t> g_producerGated{0};
@@ -169,6 +170,13 @@ namespace
         // like any other task and falls through to the substitution below.
         if ((t_inClothManager || t_inClothProducer) &&
             config::Get().clothMode == config::Settings::ClothMode::Gate)
+            return stepCount;
+
+        // The jacket solver already receives a correct per-frame delta from its
+        // caller, confirmed by logging both and finding them identical.
+        // Substituting a step and forcing a single substep therefore changes how
+        // it integrates without fixing anything, so leave its stepping alone.
+        if (t_inJacket && config::Get().excludeJacketFromTaskTiming)
             return stepCount;
 
         const float exactDelta = g_frameDeltaSeconds ? *g_frameDeltaSeconds : 0.0f;
@@ -441,4 +449,9 @@ void mgs4::LogClothCounters(double intervalSeconds)
                           ? std::to_string(config::Get().hairFixedStepChainCount)
                           : std::string("none"));
     }
+}
+
+void mgs4::EnterJacketScope(bool active)
+{
+    t_inJacket = active;
 }

@@ -15,4 +15,8 @@ namespace mgs4
     bool InstallClothTiming(const void* frameTimingStruct, const void* frameTickDelta60);
 
     void LogClothCounters(double intervalSeconds);
+
+    // Marks a scope as jacket solver work, so the shared task timing hook
+    // leaves its stepping alone the way it does for cloth.
+    void EnterJacketScope(bool active);
 } // namespace mgs4

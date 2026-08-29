@@ -15,6 +15,7 @@
 #include "core/log.h"
 #include "core/memory.h"
 #include "core/module.h"
+#include "mgs4/cloth.h"
 
 // MGS4 drives most of its gameplay from a real frame delta, which is why raising
 // the framerate leaves movement, animation and audio behaving correctly. Its
@@ -148,47 +149,14 @@ namespace
                            *reinterpret_cast<uint16_t*>(jacket + kJacketPointCountOffset));
         }
 
-        // The caller hands this solver a fixed step of roughly 1/60 on every
-        // call, not a per-frame delta. At 60 fps that is exactly right. At 240
-        // it means four full 60 Hz steps of motion per 60 Hz of real time, which
-        // is the jacket swaying about four times too fast.
-        //
-        // Skipping calls to compensate does not work: the renderer then shows a
-        // stale pose alongside the current one, which reads as a doubled,
-        // semi-transparent jacket. That is the same lesson the cloth solver
-        // taught, and the answer is the same. Never skip a call; correct the
-        // step instead, so each call advances only the time that has actually
-        // passed.
-        if (!config::Get().gateJacket || !context || !g_frameDeltaSeconds)
-        {
-            g_directJacketUpdate.unsafe_call(jacket, context);
-            return;
-        }
-
-        const float frameDelta = *g_frameDeltaSeconds;
-        if (!(frameDelta > 0.0f) || frameDelta > 0.2f)
-        {
-            g_directJacketUpdate.unsafe_call(jacket, context);
-            return;
-        }
-
-        auto* delta = reinterpret_cast<float*>(context + kJacketContextDelta);
-        auto* reciprocal = reinterpret_cast<float*>(context + kJacketContextReciprocalDelta);
-        const float savedDelta = *delta;
-        const float savedReciprocal = *reciprocal;
-
-        // Only shorten the step. If the caller is already passing something at
-        // or below the real frame time, leave it alone.
-        if (frameDelta < savedDelta)
-        {
-            *delta = frameDelta;
-            *reciprocal = 1.0f / frameDelta;
-            g_jacketGated.fetch_add(1, std::memory_order_relaxed);
-        }
-
+        // Its caller already passes a correct per-frame delta, so nothing here
+        // needs to touch the step. What did affect it was the shared task
+        // timing hook, which was substituting a step and forcing a single
+        // substep for anything not marked as cloth. Mark the scope so that hook
+        // leaves the jacket alone.
+        mgs4::EnterJacketScope(true);
         g_directJacketUpdate.unsafe_call(jacket, context);
-        *delta = savedDelta;
-        *reciprocal = savedReciprocal;
+        mgs4::EnterJacketScope(false);
     }
 } // namespace
 
