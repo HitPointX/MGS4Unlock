@@ -9,6 +9,7 @@
 #include "core/module.h"
 #include "core/pdata.h"
 #include "dumper/dumper.h"
+#include "mgs4/camera.h"
 #include "mgs4/character.h"
 #include "mgs4/cloth.h"
 #include "mgs4/picker.h"
@@ -18,7 +19,7 @@
 
 namespace
 {
-    constexpr const char* kVersion = "0.8b";
+    constexpr const char* kVersion = "0.8c";
 
     HMODULE g_self = nullptr;
 
@@ -136,6 +137,12 @@ namespace
             logging::Info("character: character timing disabled by config");
         }
 
+        if (settings.fixCameraTurnRate)
+        {
+            if (!mgs4::InstallCameraTiming(mgs4::FrameTimingStruct()))
+                logging::Error("camera: the camera will turn fast above 60 fps");
+        }
+
         // Cloth timing depends on the frame timing globals the cutscene fix
         // resolves, so it has to come after it.
         if (settings.gateCloth)
@@ -190,6 +197,7 @@ namespace
             {
                 const double interval = static_cast<double>(settings.surveyIntervalSeconds);
                 mgs4::LogCharacterCounters(interval);
+                mgs4::LogCameraCounters(interval);
                 mgs4::LogTimingCounters(interval);
                 mgs4::LogClothCounters(interval);
             }

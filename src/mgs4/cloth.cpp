@@ -89,7 +89,7 @@ namespace
         "40 53 48 81 EC D0 00 00 00 48 8B D9 E8 ?? ?? ?? ?? E8 ?? ?? ?? ?? "
         "48 8B 81 48 02 00 00 48 85 C0";
 
-    constexpr float kHairReferenceStep = 0.016683351f; // 1/59.94
+    constexpr float kSixtyHertzStep = 0.016683351f; // 1/59.94, one 60 Hz tick
     constexpr ptrdiff_t kHairChainCountOffset = 0x260;
 
     // A step longer than this is not a plausible per-frame simulation step and
@@ -117,6 +117,12 @@ namespace
     thread_local bool t_inClothProducer = false;
     thread_local bool t_inHair = false;
     thread_local bool t_inJacket = false;
+
+    // Set while a cloth call is being run on the cutscene's clock rather than
+    // the frame's. Such a call represents one whole 60 Hz tick, so it must keep
+    // the solver's native step. Substituting the frame delta into it would
+    // advance a quarter of the time it should at 240 fps.
+    thread_local bool t_clothOnCutsceneClock = false;
 
     std::atomic<uint64_t> g_producerCalls{0};
     std::atomic<uint64_t> g_producerGated{0};
@@ -161,25 +167,45 @@ namespace
         // engine compensating by running several.
         if (t_inHair && config::Get().hairFixedStep)
         {
-            *taskStep = kHairReferenceStep;
+            *taskStep = kSixtyHertzStep;
             return maxSteps < 1 ? maxSteps : 1;
         }
 
-        // In gate mode cloth keeps its native step and is rate-limited by
-        // gating instead, so it is excluded here. In delta mode it is treated
-        // like any other task and falls through to the substitution below.
-        if ((t_inClothManager || t_inClothProducer) &&
-            config::Get().clothMode == config::Settings::ClothMode::Gate)
-            return stepCount;
-
-        // The jacket solver already receives a correct per-frame delta from its
-        // caller, confirmed by logging both and finding them identical.
-        // Substituting a step and forcing a single substep therefore changes how
-        // it integrates without fixing anything, so leave its stepping alone.
+        // The jacket solver keeps its own stepping, always, and this has to be
+        // tested before anything to do with cloth. Its update runs nested inside
+        // the cloth scope, so without this it silently inherits cloth's
+        // treatment: in a cutscene that meant a 60 Hz step handed to a solver
+        // being called every frame, four times what it should advance. It
+        // receives a correct per-frame delta from its own caller either way.
         if (t_inJacket && config::Get().excludeJacketFromTaskTiming)
             return stepCount;
 
         if (!config::Get().substituteTaskTiming)
+            return stepCount;
+
+        // Correct only what is known to need it. A blanket version of this was
+        // the cause of the jacket, the NPC coats and Meryl's earring
+        // misbehaving, because those solvers already receive a correct
+        // per-frame delta. Turning it off entirely was equally wrong, because
+        // cloth depends on it. So: deny by default, and cloth opts in.
+        const bool inClothScope = t_inClothManager || t_inClothProducer;
+        if (!inClothScope &&
+            config::Get().taskTimingScope == config::Settings::TaskTimingScope::Cloth)
+            return stepCount;
+
+        // A cloth call running on the cutscene's clock stands for one whole
+        // 60 Hz tick and needs that tick's duration. Leaving the step alone is
+        // not enough, because the step this function produces is itself derived
+        // from frame time and would advance a quarter of a tick at 240 fps.
+        if (inClothScope && t_clothOnCutsceneClock)
+        {
+            *taskStep = kSixtyHertzStep;
+            g_stepsSubstituted.fetch_add(1, std::memory_order_relaxed);
+            return maxSteps < 1 ? maxSteps : 1;
+        }
+
+        // Gate mode limits cloth's rate by gating, so it keeps its own step.
+        if (inClothScope && config::Get().clothMode == config::Settings::ClothMode::Gate)
             return stepCount;
 
         const float exactDelta = g_frameDeltaSeconds ? *g_frameDeltaSeconds : 0.0f;
@@ -290,8 +316,11 @@ namespace
             }
 
             const bool previous = t_inClothProducer;
+            const bool previousClock = t_clothOnCutsceneClock;
             t_inClothProducer = true;
+            t_clothOnCutsceneClock = true;
             g_clothProducerUpdate.unsafe_call(producer, updateArgument, updateType);
+            t_clothOnCutsceneClock = previousClock;
             t_inClothProducer = previous;
             return;
         }

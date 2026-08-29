@@ -149,11 +149,19 @@ namespace
                            *reinterpret_cast<uint16_t*>(jacket + kJacketPointCountOffset));
         }
 
-        // Its caller already passes a correct per-frame delta, so nothing here
-        // needs to touch the step. What did affect it was the shared task
-        // timing hook, which was substituting a step and forcing a single
-        // substep for anything not marked as cloth. Mark the scope so that hook
-        // leaves the jacket alone.
+        // Its caller already passes a correct per-frame delta, in gameplay and
+        // in cutscenes alike, so the step it is handed needs no adjustment.
+        //
+        // Three things were tried here and all made it worse: skipping calls,
+        // which loses bookkeeping the renderer depends on and leaves the jacket
+        // doubled; substituting a fixed 60 Hz step, which over-advances it; and
+        // holding the step near zero on frames that should not advance, which
+        // destabilises the solver because it divides by that value.
+        //
+        // What it actually needed was to stop inheriting cloth's treatment. Its
+        // update runs nested inside the cloth scope, so the shared task timing
+        // hook was applying cloth's step to it. Marking the scope is the whole
+        // fix; see the jacket check in the task timing hook.
         mgs4::EnterJacketScope(true);
         g_directJacketUpdate.unsafe_call(jacket, context);
         mgs4::EnterJacketScope(false);

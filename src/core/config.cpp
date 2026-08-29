@@ -35,6 +35,12 @@ PatchPicker = true
 ; cutscenes run at double speed above 60 fps.
 GateCutscenes = true
 
+; Normalises the camera turn smoothing above 60 fps. The camera settles towards
+; where the stick points by a fixed fraction per frame, so above 60 it settles
+; sooner. Most obvious crawling through a duct, where it reads as the stick
+; being far too sensitive.
+FixCameraTurnRate = true
+
 ; Corrects character movement and animation speed above 60 fps. Without this,
 ; animation runs slow, slightly at 120 and noticeably at 240.
 FixCharacterTiming = true
@@ -56,14 +62,20 @@ ClothMode = delta
 ClothFollowsCutscene = true
 
 ; Substitute the real frame delta into the engine's shared simulation task
-; timing. Off by default: it applies one correction to every simulation task in
-; the game, and was found to be the cause of Snake's coat, the NPC coats and
-; Meryl's earring misbehaving above 60 fps.
-SubstituteTaskTiming = false
+; timing, for the tasks that need it. Applies within cloth scope only: other
+; solvers already receive a correct per-frame delta and are harmed by it.
+SubstituteTaskTiming = true
+
+; Which tasks the timing substitution applies to.
+;   cloth - cloth solvers only (default, known good)
+;   all   - every task except the jacket and hair, which have their own handling
+; Try "all" if something outside cloth animates too fast at high framerates.
+TaskTimingScope = cloth
 
 ; Leave the jacket solver's stepping to the engine instead of letting the
 ; shared task timing correction alter it.
 ExcludeJacketFromTaskTiming = true
+
 
 ; Give the hair solver a fixed step near 1/60 rather than the real frame time.
 ; Without this, Snake's bandana floats above his head at high framerates
@@ -226,6 +238,11 @@ void config::Load(const std::filesystem::path& file)
             if (!ParseBool(value, g_settings.gateCutscenes))
                 logging::Warn("config: GateCutscenes is not a boolean: '{}'", value);
         }
+        else if (key == "FixCameraTurnRate")
+        {
+            if (!ParseBool(value, g_settings.fixCameraTurnRate))
+                logging::Warn("config: FixCameraTurnRate is not a boolean: '{}'", value);
+        }
         else if (key == "FixCharacterTiming")
         {
             if (!ParseBool(value, g_settings.fixCharacterTiming))
@@ -252,6 +269,18 @@ void config::Load(const std::filesystem::path& file)
         {
             if (!ParseBool(value, g_settings.substituteTaskTiming))
                 logging::Warn("config: SubstituteTaskTiming is not a boolean: '{}'", value);
+        }
+        else if (key == "TaskTimingScope")
+        {
+            std::string lowered(value);
+            std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (lowered == "cloth")
+                g_settings.taskTimingScope = Settings::TaskTimingScope::Cloth;
+            else if (lowered == "all")
+                g_settings.taskTimingScope = Settings::TaskTimingScope::All;
+            else
+                logging::Warn("config: TaskTimingScope must be cloth or all: '{}'", value);
         }
         else if (key == "ExcludeJacketFromTaskTiming")
         {

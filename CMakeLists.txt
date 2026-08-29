@@ -29,6 +29,7 @@ add_library(MGS4Unlock SHARED
     src/core/module.cpp
     src/core/pdata.cpp
     src/dumper/dumper.cpp
+    src/mgs4/camera.cpp
     src/mgs4/character.cpp
     src/mgs4/cloth.cpp
     src/mgs4/picker.cpp

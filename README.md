@@ -6,7 +6,7 @@ The game ships with a "Max Frame Rate" setting offering 30, 40 and 60. This mod
 replaces that list with 30, 60, 120 and 240, makes the choice stick, and
 corrects the engine systems that do not scale correctly above 60.
 
-Current version: **0.8b** (beta)
+Current version: **0.8c** (beta)
 
 ## Status
 
@@ -25,6 +25,10 @@ Current version: **0.8b** (beta)
 | Coats and jackets, Snake and NPCs | Corrected, verified at 240 |
 | Hair, chains and small accessories | Corrected, verified at 240 |
 | Snake's bandana | Corrected, verified at 120 and 240 |
+| Snake's jacket, gameplay and cutscenes | Corrected, verified at 240 |
+| Meryl's earring | Corrected, verified at 240 |
+| Camera turn smoothing | Corrected, crawl spaces pending confirmation |
+| Signal Interceptor display rate | Known fast at 240, not yet fixed |
 | Stability | No crash seen in normal gameplay, testing ongoing |
 
 This is beta software. It writes to another process's memory and installs code
@@ -66,7 +70,7 @@ Without it the mod loads nothing and the log file will not appear.
 `logs/MGS4Unlock.log` should open with something like:
 
 ```
-[I] MGS4Unlock v0.8b loaded, impersonating dbghelp.dll
+[I] MGS4Unlock v0.8c loaded, impersonating dbghelp.dll
 [I] proxy: forwarding to C:\windows\system32\dbghelp.dll (9 exports resolved, 0 missing)
 [I] picker: extended the menu from 3 to 4 options
 [I] timing: cutscene playback gated to its native 60 Hz tick
@@ -77,6 +81,8 @@ Without it the mod loads nothing and the log file will not appear.
 `MGS4Unlock.ini`, written next to the DLL:
 
 ```ini
+; MGS4Unlock configuration.
+
 [Settings]
 ; The rates the in-game picker should offer, replacing the stock 30, 40, 60.
 ; The menu formats its labels from these numbers, so this is literally what you
@@ -97,6 +103,12 @@ PatchPicker = true
 ; Gates cutscene playback to the engine's native 60 Hz tick. Without this,
 ; cutscenes run at double speed above 60 fps.
 GateCutscenes = true
+
+; Normalises the camera turn smoothing above 60 fps. The camera settles towards
+; where the stick points by a fixed fraction per frame, so above 60 it settles
+; sooner. Most obvious crawling through a duct, where it reads as the stick
+; being far too sensitive.
+FixCameraTurnRate = true
 
 ; Corrects character movement and animation speed above 60 fps. Without this,
 ; animation runs slow, slightly at 120 and noticeably at 240.
@@ -119,14 +131,20 @@ ClothMode = delta
 ClothFollowsCutscene = true
 
 ; Substitute the real frame delta into the engine's shared simulation task
-; timing. Off by default: it applies one correction to every simulation task in
-; the game, and was found to be the cause of Snake's coat, the NPC coats and
-; Meryl's earring misbehaving above 60 fps.
-SubstituteTaskTiming = false
+; timing, for the tasks that need it. Applies within cloth scope only: other
+; solvers already receive a correct per-frame delta and are harmed by it.
+SubstituteTaskTiming = true
+
+; Which tasks the timing substitution applies to.
+;   cloth - cloth solvers only (default, known good)
+;   all   - every task except the jacket and hair, which have their own handling
+; Try "all" if something outside cloth animates too fast at high framerates.
+TaskTimingScope = cloth
 
 ; Leave the jacket solver's stepping to the engine instead of letting the
 ; shared task timing correction alter it.
 ExcludeJacketFromTaskTiming = true
+
 
 ; Give the hair solver a fixed step near 1/60 rather than the real frame time.
 ; Without this, Snake's bandana floats above his head at high framerates
@@ -237,13 +255,45 @@ early version of this mod fed it the real frame delta, which sounds right and is
 wrong: most solvers already receive a correct per-frame delta from their own
 callers, and adjusting it changed how they integrate without fixing anything.
 That single global correction turned out to be the cause of Snake's coat, the
-NPC coats and Meryl's earring all misbehaving above 60 fps. It is off by
-default, and kept only because a selective version, adjusting the tasks that
-want it rather than every task, may still have a use.
+NPC coats and Meryl's earring all misbehaving above 60 fps. Turning it off
+wholesale was equally wrong, because cloth stepped by real frame time depends on
+it. It is now scoped to cloth solvers, with the jacket excluded explicitly, and
+that exclusion is tested first so it wins where both would apply.
+
+*Snake's jacket* is the clearest case of a correction belonging nowhere. It is
+driven by two clocks depending on context: the cutscene's gated 60 Hz while a
+cutscene plays, and the frame rate during gameplay. Every attempt to correct it
+for one reintroduced the fault in the other. Its solver already receives a
+correct per-frame delta, confirmed by logging its step against the frame delta
+and finding them identical, so the fix was to stop correcting it and let the
+engine step it.
 
 The same mistake in miniature: the bandana's fixed step was initially applied to
 every hair instance, which fixed the bandana and broke other characters' hair and
 jewellery. It now applies to one instance, matched by chain count.
+
+**Fixed fractions that are not fixed rates.**
+
+*The camera* settles towards where the stick is pointing by exponential
+smoothing: `current += (target - current) * (1/3)` once per call, with no frame
+time involved. The fraction is per call rather than per unit of time, so the
+camera converges once per frame however long the frame was, and at 240 it
+arrives four times sooner. It reads as the stick being far too sensitive, most
+obviously in the confined crawl spaces where the camera is meant to move slowly.
+
+The framerate independent form is `1 - (1 - 1/3) ^ (delta * 60)`, which is 1/3
+at 60 fps and about 0.096 at 240. The constant is shared with 78 other
+references and cannot be patched in place, so the correction works on the
+result: the step is linear in its factor, so rescaling the change the step made
+by the ratio of the corrected factor to the stock one gives exactly the value a
+correctly stepped smoothing would produce, without needing to know the target or
+either constant. Where the update changes nothing, the rescaled change is zero
+and the correction is inert.
+
+Two functions run this step. The second is a leaf carrying no unwind data, so it
+is absent from the exception directory and was not found by walking function
+boundaries; it was located by following references to the turn multiplier into a
+gap in that directory. It is the one driving the crawl spaces.
 
 **The rule both categories point at.** A simulation must advance at the rate of
 whatever moves its inputs, and a correction belongs on the systems that need it
@@ -386,12 +436,22 @@ in the way of 240.
 cloth in cutscenes animates at 60 with them. The engine offers no interpolation
 between cutscene states, so this is inherent to gating that system.
 
+**The Signal Interceptor display cycles about four times too fast at 240.**
+`Searching...` and the station names are localization strings, so this is the
+item's own display timer rather than a physics step. It does not pass through
+the shared simulation task timing: widening that substitution from cloth only to
+every task left the substitution count unchanged, meaning every task reaching
+that function is already a cloth task. Fixing it means locating the timer that
+drives the display. Cosmetic, and queued for 0.9.
+
 **The headdress and scarf are unverified since 0.8b.** They were originally
-credited to the shared task timing correction, which is now off by default
-because it was causing several other problems. That credit was never isolated
-from the cloth changes that shipped alongside it, so those two garments may or
-may not still be correct. If they are not, the fix is a selective version of
-that correction rather than the global one.
+credited to the shared task timing correction, which has since been rescoped to
+cloth solvers only. That credit was never isolated from the cloth changes that
+shipped alongside it, so those two garments may or may not still be correct. If
+they are not, the `TaskTimingScope` setting is the first thing to try.
+
+**Naomi's necklace still sways further than it should.** Cosmetic, and much
+improved from where it started.
 
 **Stability has had limited testing.** No crash has been seen in normal
 gameplay so far, across most of Act 1 and Act 2 at 120 and 240.

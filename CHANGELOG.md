@@ -8,6 +8,96 @@ All work targets game build `[Code]a84606af` (2026-08-25),
 
 ---
 
+## 0.8c, the jacket and the camera
+
+Two problems that both came down to a rate being applied where it did not
+belong, plus the first correction aimed at something other than cloth.
+
+### Snake's jacket
+
+Snake's coat was the last cloth holdout, and it took several passes because a
+fix in gameplay kept reintroducing the fault in cutscenes and the other way
+round. The cause was that the jacket is driven by two different clocks depending
+on context, and any single correction is right for one of them and wrong for the
+other. During a cutscene its anchor points move at the cutscene's gated 60 Hz;
+during gameplay they move at the frame rate.
+
+The resolution was to stop correcting the jacket at all and let its solver step
+itself. It already receives a correct per-frame delta from its caller, which was
+confirmed by logging its step against the frame delta and finding them
+identical, so every adjustment applied on top of that was making a correct value
+wrong. The jacket is now excluded from the shared task timing substitution, and
+that exclusion is tested before the cloth scope check so it wins when both apply.
+
+Verified in gameplay and in cutscenes at 240, along with the NPC coats and
+Meryl's earring, which had been collateral damage from earlier attempts at this.
+
+### Camera turn smoothing
+
+The camera turns roughly four times too fast at 240. It is most obvious crawling
+through a duct, where the camera is meant to move slowly and reads instead as
+the stick being far too sensitive.
+
+The camera settles towards where the stick is pointing by exponential smoothing:
+
+    target  = input * 5.859375
+    current = current + (target - current) * (1/3)
+
+There is no frame time anywhere in that. The fraction is per call, not per unit
+of time, so the camera converges once per frame regardless of how long the frame
+was. At 60 fps that is the intended feel; at 240 the same step runs four times
+as often and the camera arrives four times sooner.
+
+The framerate independent form of that smoothing is
+
+    factor = 1 - (1 - 1/3) ^ (delta * 60)
+
+which is 1/3 at 60 fps and about 0.096 at 240, so the camera covers the same
+ground per unit of time at any rate.
+
+The 1/3 constant is shared with 78 other references in the constant pool, so it
+cannot be patched in place. The correction works on the result instead: the step
+is linear in its factor, so rescaling the change the original step made by the
+ratio of the corrected factor to the stock one lands on exactly the value a
+correctly stepped smoothing would have produced. That needs no knowledge of the
+target or of either constant, and when the update takes its early out and
+changes nothing the rescaled change is zero, so the correction is inert rather
+than wrong.
+
+Two functions run this step and both are hooked. The second is a small leaf
+function that carries no unwind data, so it does not appear in the exception
+directory and was not found by walking function boundaries. It was located by
+following references to the turn multiplier into a gap in that directory. It is
+the one that drives the confined crawl spaces, which is why the first attempt,
+aimed only at the general camera update, counted zero calls in a duct.
+
+Controlled by `FixCameraTurnRate`, on by default.
+
+### Also
+
+- The shared task timing substitution is on again by default, scoped to cloth
+  solvers only. Turning it off wholesale in 0.8b was as wrong as applying it
+  everywhere had been: cloth in delta mode depends on it. The new
+  `TaskTimingScope` setting selects between cloth solvers and every task, for
+  diagnosing anything outside cloth that animates too fast.
+
+- The survey now reports camera and crawl camera call rates alongside the
+  existing per system counters.
+
+### Known open
+
+- The Signal Interceptor display cycles about four times too fast at 240.
+  `Searching...` and the station names are localization strings, so this is the
+  item's own display timer rather than a physics step. It does not pass through
+  the shared simulation task timing: widening the substitution from cloth only
+  to every task left the substitution count unchanged, which means every task
+  reaching that function is already a cloth task. Deferred to 0.9.
+
+- Naomi's necklace still sways further than it should. Cosmetic, and much
+  improved from where it started.
+
+---
+
 ## 0.8b, cutscene physics
 
 Physics work. Nearly every remaining problem turned out to be one of two

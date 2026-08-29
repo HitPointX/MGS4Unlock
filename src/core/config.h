@@ -32,6 +32,12 @@ namespace config
         // this, cutscenes play at double speed above 60 fps.
         bool gateCutscenes = true;
 
+        // Normalises the camera turn smoothing above 60 fps. The camera
+        // settles towards where the stick points by a fixed fraction per call
+        // with no frame time involved, so it converges sooner the more often it
+        // runs.
+        bool fixCameraTurnRate = true;
+
         // Corrects character movement and animation speed above 60 fps, by
         // carrying the fractional part of the 300 Hz character tick between
         // frames instead of discarding it.
@@ -75,25 +81,39 @@ namespace config
         bool clothFollowsCutscene = true;
 
         // Substitute the real frame delta into the engine's shared simulation
-        // task timing.
+        // task timing, for the tasks that need it.
         //
-        // Off by default. This applies one correction to every simulation task
-        // in the game, and testing found it was the cause of Snake's coat, the
-        // NPC coats and Meryl's earring all behaving badly above 60 fps: those
-        // solvers already receive a correct per-frame delta and do not want it
-        // adjusted. It was originally credited with fixing the headdress and
-        // scarf, but it shipped alongside the cloth producer changes and was
-        // never isolated from them, so that credit is unproven.
+        // This applies only within cloth solver scope. A blanket version was
+        // tried first and was the cause of Snake's coat, the NPC coats and
+        // Meryl's earring misbehaving: those solvers already receive a correct
+        // per-frame delta and are harmed by adjustment. Disabling it wholesale
+        // was equally wrong, because cloth in delta mode depends on it.
+        bool substituteTaskTiming = true;
+
+        // Which tasks the substitution applies to.
         //
-        // Left in place rather than removed because if some system does turn out
-        // to need it, the right form is a selective version that adjusts only
-        // the tasks that want it, not a global one.
-        bool substituteTaskTiming = false;
+        //   Cloth - cloth solvers only. Safe, and what is known to work.
+        //   All   - every task except those with their own handling, currently
+        //           the jacket and hair solvers.
+        //
+        // All was tried first and appeared to break the jacket and coats. That
+        // was really the jacket inheriting cloth's treatment through a nested
+        // scope, which is now excluded properly, so All may be safe. It is worth
+        // testing because some systems outside cloth do want the correction:
+        // the Signal Interceptor display animates about four times too fast at
+        // 240 and is not cloth.
+        enum class TaskTimingScope
+        {
+            Cloth,
+            All,
+        };
+        TaskTimingScope taskTimingScope = TaskTimingScope::Cloth;
 
         // Leave the jacket solver's stepping to the engine, rather than
         // letting the shared task timing hook substitute a step and force a
         // single substep. Its caller already passes a correct per-frame delta.
         bool excludeJacketFromTaskTiming = true;
+
 
         // Give the hair solver a fixed step near 1/60 instead of the real frame
         // delta. Snake's bandana floats up off his head without this, because
